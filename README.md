@@ -73,11 +73,11 @@ Todas as requisições à API exigem o cabeçalho HTTP:
 | **POST** | `/api/v1/{collection}/{document_id}` | Cria ou substitui um documento. (Envie `new_id` no lugar do `document_id` para gerar um UUID v4 automaticamente) |
 | **PUT** | `/api/v1/{collection}/{document_id}` | Atualização parcial (realiza o merge de campos) no documento especificado |
 | **DELETE** | `/api/v1/{collection}/{document_id}` | Exclui permanentemente um documento da memória e do disco |
-| **POST** | `/api/v1/{collection}/query` | Executa filtros complexos, ordenação e limite de busca no banco |
+| **POST** | `/api/v1/{collection}/_query` | Executa filtros complexos, ordenação e limite de busca no banco |
 
 ### Exemplo de Consulta (Query POST)
 
-**Endpoint:** `/api/v1/users/query`  
+**Endpoint:** `/api/v1/users/_query`  
 **Corpo da Requisição (JSON):**
 ```json
 {

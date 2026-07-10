@@ -217,14 +217,14 @@ pub fn docs_page() -> Markup {
                             div class="api-endpoint" {
                                 div class="api-header" {
                                     span class="badge badge-post" { "POST" }
-                                    span class="api-path" { "/api/v1/{collection}/query" }
+                                    span class="api-path" { "/api/v1/{collection}/_query" }
                                 }
                                 p class="api-description" { "Executa uma consulta complexa retornando apenas os documentos que atendem aos filtros, ordenação e limite de resultados." }
                                 div class="api-details" {
                                     div class="details-box" {
                                         h4 { "Comando Curl" }
                                         pre class="code-block" {
-                                            "curl -X POST " (base_url) "/api/v1/users/query \\\n     -H \"Authorization: Bearer " (api_key) " \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n          \"where\": [{\"field\": \"idade\", \"op\": \">\", \"value\": 22}],\n          \"order_by\": {\"field\": \"idade\", \"direction\": \"desc\"},\n          \"limit\": 5\n         }'"
+                                            "curl -X POST " (base_url) "/api/v1/users/_query \\\n     -H \"Authorization: Bearer " (api_key) " \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n          \"where\": [{\"field\": \"idade\", \"op\": \">\", \"value\": 22}],\n          \"order_by\": {\"field\": \"idade\", \"direction\": \"desc\"},\n          \"limit\": 5\n         }'"
                                         }
                                     }
                                     div class="details-box" {

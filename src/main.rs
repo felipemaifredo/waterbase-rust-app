@@ -1,6 +1,7 @@
 //Libs
 use actix_web::{web, App, HttpServer};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use dotenvy::dotenv;
 
 //Imports
@@ -23,7 +24,7 @@ async fn main() -> std::io::Result<()> {
 
     // Seed de dados iniciais apenas se o banco estiver completamente vazio
     {
-        let mut db = database.write().unwrap();
+        let mut db = database.write().await;
         if db.collections.is_empty() {
             db.create_collection("users".to_string());
             let mut fields = std::collections::HashMap::new();
@@ -59,7 +60,7 @@ async fn main() -> std::io::Result<()> {
                 web::scope("/api/v1")
                     .route("/collections", web::get().to(handlers::api::api_list_collections))
                     .route("/{col}", web::get().to(handlers::api::api_list_documents))
-                    .route("/{col}/query", web::post().to(handlers::api::api_query_documents))
+                    .route("/{col}/_query", web::post().to(handlers::api::api_query_documents))
                     .route("/{col}/{doc}", web::get().to(handlers::api::api_get_document))
                     .route("/{col}/{doc}", web::post().to(handlers::api::api_create_document))
                     .route("/{col}/{doc}", web::put().to(handlers::api::api_update_document))

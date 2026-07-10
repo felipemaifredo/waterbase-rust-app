@@ -1,7 +1,8 @@
 //Libs
 use actix_web::{web, HttpResponse, Responder, HttpRequest, http::header};
-use actix_web::cookie::Cookie;
-use std::sync::{Arc, RwLock};
+use actix_web::cookie::{Cookie, SameSite};
+use std::sync::Arc;
+use tokio::sync::RwLock;
 use waterbase_rust_app::{Database, Document};
 
 //Imports
@@ -66,6 +67,8 @@ pub async fn login_post(form: web::Form<LoginForm>) -> impl Responder {
         let cookie = Cookie::build(SESSION_COOKIE_NAME, SESSION_COOKIE_VALUE)
             .path("/")
             .http_only(true)
+            .max_age(actix_web::cookie::time::Duration::hours(8))
+            .same_site(SameSite::Strict)
             .finish();
             
         HttpResponse::SeeOther()
@@ -83,6 +86,7 @@ pub async fn logout() -> impl Responder {
     let cookie = Cookie::build(SESSION_COOKIE_NAME, "")
         .path("/")
         .max_age(actix_web::cookie::time::Duration::ZERO)
+        .same_site(SameSite::Strict)
         .finish();
 
     HttpResponse::SeeOther()
@@ -107,7 +111,7 @@ pub async fn index(
         return HttpResponse::SeeOther().insert_header((header::LOCATION, "/login")).finish();
     }
 
-    let db_read = db.read().unwrap();
+    let db_read = db.read().await;
     let mut collections: Vec<String> = db_read.collections.keys().cloned().collect();
     collections.sort();
 
@@ -136,7 +140,7 @@ pub async fn create_collection(
         return HttpResponse::SeeOther().insert_header((header::LOCATION, "/login")).finish();
     }
 
-    let mut db_write = db.write().unwrap();
+    let mut db_write = db.write().await;
     db_write.create_collection(form.name.clone());
 
     HttpResponse::SeeOther()
@@ -155,7 +159,7 @@ pub async fn create_document(
     }
 
     let collection_name = path.into_inner();
-    let mut db_write = db.write().unwrap();
+    let mut db_write = db.write().await;
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
@@ -188,7 +192,7 @@ pub async fn update_document(
     }
 
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().unwrap();
+    let mut db_write = db.write().await;
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
@@ -220,7 +224,7 @@ pub async fn delete_document(
     }
 
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().unwrap();
+    let mut db_write = db.write().await;
 
     if let Err(e) = db_write.delete_document(&collection_name, &doc_id) {
         return HttpResponse::SeeOther()
