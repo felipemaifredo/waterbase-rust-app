@@ -18,8 +18,9 @@ async fn main() -> std::io::Result<()> {
     dotenv().ok();
 
     // Cria ou carrega o banco de dados persistido no disco
+    let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "data".to_string());
     let database = Arc::new(RwLock::new(
-        Database::new_with_storage("data".to_string()).expect("Falha ao inicializar armazenamento no disco")
+        Database::new_with_storage(db_path).expect("Falha ao inicializar armazenamento no disco")
     ));
 
     // Seed de dados iniciais apenas se o banco estiver completamente vazio
@@ -39,7 +40,8 @@ async fn main() -> std::io::Result<()> {
     let shared_db = web::Data::new(database);
     let port_str = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let port = port_str.parse::<u16>().unwrap_or(8080);
-    println!("Servidor rodando em http://localhost:{}", port);
+    let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    println!("Servidor rodando em http://{}:{}", host, port);
 
     HttpServer::new(move || {
         App::new()
@@ -67,7 +69,7 @@ async fn main() -> std::io::Result<()> {
                     .route("/{col}/{doc}", web::delete().to(handlers::api::api_delete_document))
             )
     })
-    .bind(("127.0.0.1", port))?
+    .bind((host.as_str(), port))?
     .run()
     .await
 }
