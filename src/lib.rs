@@ -317,10 +317,10 @@ impl Database {
                     for file_entry in fs::read_dir(&path_buf).map_err(|e| e.to_string())? {
                         let file_entry = file_entry.map_err(|e| e.to_string())?;
                         let file_path = file_entry.path();
-                        if file_path.is_file() && file_path.extension().and_then(|s| s.to_str()) == Some("json") {
+                        if file_path.is_file() && file_path.extension().and_then(|s| s.to_str()) == Some("bin") {
                             let doc_id = file_path.file_stem().ok_or("Invalid file name")?.to_string_lossy().to_string();
-                            let json_content = fs::read_to_string(&file_path).map_err(|e| e.to_string())?;
-                            let doc: Document = serde_json::from_str(&json_content).map_err(|e| e.to_string())?;
+                            let bytes = fs::read(&file_path).map_err(|e| e.to_string())?;
+                            let doc: Document = rmp_serde::from_slice(&bytes).map_err(|e| e.to_string())?;
                             documents.insert(doc_id, doc);
                         }
                     }
@@ -342,9 +342,9 @@ impl Database {
                 if !Path::new(&dir_path).exists() {
                     fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
                 }
-                let file_path = format!("{}/{}.json", dir_path, doc_id);
-                let json_str = serde_json::to_string_pretty(doc).map_err(|e| e.to_string())?;
-                fs::write(file_path, json_str).map_err(|e| e.to_string())?;
+                let file_path = format!("{}/{}.bin", dir_path, doc_id);
+                let bytes = rmp_serde::to_vec(doc).map_err(|e| e.to_string())?;
+                fs::write(file_path, bytes).map_err(|e| e.to_string())?;
             }
         }
         Ok(())
@@ -352,7 +352,7 @@ impl Database {
 
     fn unsync_document(&self, collection: &str, doc_id: &str) -> Result<(), String> {
         if let Some(ref base_path) = self.storage_path {
-            let file_path = format!("{}/{}/{}.json", base_path, collection, doc_id);
+            let file_path = format!("{}/{}/{}.bin", base_path, collection, doc_id);
             if Path::new(&file_path).exists() {
                 fs::remove_file(file_path).map_err(|e| e.to_string())?;
             }
@@ -544,19 +544,18 @@ mod tests {
     }
 
     #[test]
-    fn test_serde_serialization() {
+    fn test_msgpack_serialization() {
         let mut fields = HashMap::new();
         fields.insert("nome".to_string(), Value::String("Felipe".to_string()));
         fields.insert("idade".to_string(), Value::Number(29.0));
         let doc = Document::new(fields);
 
-        let json = serde_json::to_string(&doc).unwrap();
-        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed["nome"], "Felipe");
-        assert_eq!(parsed["idade"], 29.0);
+        let bytes = rmp_serde::to_vec(&doc).unwrap();
+        assert!(!bytes.is_empty());
 
-        let deserialized: Document = serde_json::from_str(&json).unwrap();
+        let deserialized: Document = rmp_serde::from_slice(&bytes).unwrap();
         assert_eq!(deserialized.fields.get("nome"), Some(&Value::String("Felipe".to_string())));
+        assert_eq!(deserialized.fields.get("idade"), Some(&Value::Number(29.0)));
     }
 
     #[test]
@@ -575,7 +574,7 @@ mod tests {
         let doc = Document::new(fields);
         db.create_document("users", "john_id".to_string(), doc).unwrap();
 
-        let file_path = format!("{}/users/john_id.json", temp_dir_path);
+        let file_path = format!("{}/users/john_id.bin", temp_dir_path);
         assert!(Path::new(&file_path).exists());
 
         let db2 = Database::new_with_storage(temp_dir_path.clone()).unwrap();
@@ -585,7 +584,7 @@ mod tests {
 
         let mut db3 = db2;
         db3.delete_document("users", "john_id").unwrap();
-        assert!(!Path::new(&file_path).exists());
+        assert!(!Path::new(&file_path).exists()); // arquivo .bin deve ter sido removido
 
         let _ = fs::remove_dir_all(&temp_dir_path);
     }
