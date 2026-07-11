@@ -2,6 +2,8 @@
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 //Types
 #[derive(Debug, Clone, PartialEq)]
@@ -27,6 +29,15 @@ pub struct Collection {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Database {
     pub collections: HashMap<String, Collection>,
+    pub storage_path: Option<String>,
+}
+
+/// Banco de dados compartilhado com lock granular por Collection.
+/// Cada Collection possui seu próprio RwLock, permitindo leituras
+/// paralelas em collections distintas e eliminando o bloqueio global.
+#[derive(Debug)]
+pub struct SharedDb {
+    pub collections: RwLock<HashMap<String, Arc<RwLock<Collection>>>>,
     pub storage_path: Option<String>,
 }
 
@@ -73,6 +84,7 @@ pub struct Query {
     pub r#where: Option<Vec<WhereFilter>>,
     pub order_by: Option<OrderBy>,
     pub limit: Option<usize>,
+    pub offset: Option<usize>,
 }
 
 //Funcs
@@ -368,6 +380,17 @@ impl Database {
         }
     }
 
+    pub fn delete_collection(&mut self, name: &str) -> Result<(), String> {
+        self.collections.remove(name);
+        if let Some(ref base_path) = self.storage_path {
+            let dir_path = format!("{}/{}", base_path, name);
+            if Path::new(&dir_path).exists() {
+                fs::remove_dir_all(dir_path).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn get_collection(&self, name: &str) -> Option<&Collection> {
         self.collections.get(name)
     }
@@ -394,6 +417,11 @@ impl Database {
                 for (key, val) in fields {
                     document.fields.insert(key, val);
                 }
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis() as f64;
+                document.fields.insert("_updated_at".to_string(), Value::Number(now_ms));
             } else {
                 return Err(format!("Document '{}' not found", doc_id));
             }
@@ -464,7 +492,277 @@ impl Database {
             docs.sort_by(|a, b| a.0.cmp(&b.0));
         }
 
-        // 3. Limitar
+        // 3. Offset
+        if let Some(off) = query.offset {
+            if off < docs.len() {
+                docs.drain(0..off);
+            } else {
+                docs.clear();
+            }
+        }
+
+        // 4. Limitar
+        if let Some(lim) = query.limit {
+            docs.truncate(lim);
+        }
+
+        Ok(docs)
+    }
+}
+
+impl SharedDb {
+    /// Converte um `Database` carregado do disco para `SharedDb`,
+    /// envolvendo cada Collection em seu próprio `Arc<RwLock<>>`.
+    pub fn from_database(db: Database) -> Self {
+        let mut cols = HashMap::new();
+        for (name, col) in db.collections {
+            cols.insert(name, Arc::new(RwLock::new(col)));
+        }
+        SharedDb {
+            collections: RwLock::new(cols),
+            storage_path: db.storage_path,
+        }
+    }
+
+    fn sync_document(&self, collection: &str, doc_id: &str, doc: &Document) -> Result<(), String> {
+        if let Some(ref base_path) = self.storage_path {
+            let dir_path = format!("{}/{}", base_path, collection);
+            if !Path::new(&dir_path).exists() {
+                fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
+            }
+            let file_path = format!("{}/{}.bin", dir_path, doc_id);
+            let bytes = rmp_serde::to_vec(doc).map_err(|e| e.to_string())?;
+            fs::write(file_path, bytes).map_err(|e| e.to_string())?;
+        }
+        Ok(())
+    }
+
+    fn unsync_document(&self, collection: &str, doc_id: &str) -> Result<(), String> {
+        if let Some(ref base_path) = self.storage_path {
+            let file_path = format!("{}/{}/{}.bin", base_path, collection, doc_id);
+            if Path::new(&file_path).exists() {
+                fs::remove_file(file_path).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Lista os nomes de todas as collections, ordenados alfabeticamente.
+    pub async fn list_collections(&self) -> Vec<String> {
+        let cols = self.collections.read().await;
+        let mut names: Vec<String> = cols.keys().cloned().collect();
+        names.sort();
+        names
+    }
+
+    /// Cria uma nova collection (idempotente — não duplica se já existir).
+    pub async fn create_collection(&self, name: String) {
+        let mut cols = self.collections.write().await;
+        cols.entry(name.clone())
+            .or_insert_with(|| Arc::new(RwLock::new(Collection::new())));
+        if let Some(ref base_path) = self.storage_path {
+            let dir_path = format!("{}/{}", base_path, name);
+            let _ = fs::create_dir_all(dir_path);
+        }
+    }
+
+    /// Exclui permanentemente uma collection do mapa em memória e do disco.
+    pub async fn delete_collection(&self, name: &str) -> Result<(), String> {
+        let mut cols = self.collections.write().await;
+        cols.remove(name);
+        if let Some(ref base_path) = self.storage_path {
+            let dir_path = format!("{}/{}", base_path, name);
+            if Path::new(&dir_path).exists() {
+                fs::remove_dir_all(dir_path).map_err(|e| e.to_string())?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Cria ou substitui um documento em uma collection.
+    /// Se a collection não existir, ela é criada automaticamente.
+    pub async fn create_document(
+        &self,
+        collection_name: &str,
+        doc_id: String,
+        document: Document,
+    ) -> Result<(), String> {
+        // Tenta obter o Arc sem write-lock primeiro (caminho feliz)
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name).cloned()
+        };
+
+        let col_arc = match col_arc {
+            Some(arc) => arc,
+            None => {
+                // Collection não existe — precisa de write-lock no mapa
+                let mut cols = self.collections.write().await;
+                cols.entry(collection_name.to_string())
+                    .or_insert_with(|| Arc::new(RwLock::new(Collection::new())))
+                    .clone()
+            }
+        };
+
+        {
+            let mut col = col_arc.write().await;
+            col.documents.insert(doc_id.clone(), document.clone());
+        }
+
+        self.sync_document(collection_name, &doc_id, &document)?;
+        Ok(())
+    }
+
+    /// Retorna uma cópia do documento, se existir.
+    pub async fn get_document(
+        &self,
+        collection_name: &str,
+        doc_id: &str,
+    ) -> Option<Document> {
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name)?.clone()
+        };
+        let col = col_arc.read().await;
+        col.documents.get(doc_id).cloned()
+    }
+
+    /// Aplica um merge de campos sobre um documento existente.
+    pub async fn update_document(
+        &self,
+        collection_name: &str,
+        doc_id: &str,
+        fields: HashMap<String, Value>,
+    ) -> Result<(), String> {
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name)
+                .cloned()
+                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
+        };
+
+        let updated_doc = {
+            let mut col = col_arc.write().await;
+            let doc = col
+                .documents
+                .get_mut(doc_id)
+                .ok_or_else(|| format!("Document '{}' not found", doc_id))?;
+            for (k, v) in fields {
+                doc.fields.insert(k, v);
+            }
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as f64;
+            doc.fields.insert("_updated_at".to_string(), Value::Number(now_ms));
+            doc.clone()
+        };
+
+        self.sync_document(collection_name, doc_id, &updated_doc)?;
+        Ok(())
+    }
+
+    /// Remove um documento de uma collection.
+    pub async fn delete_document(
+        &self,
+        collection_name: &str,
+        doc_id: &str,
+    ) -> Result<(), String> {
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name)
+                .cloned()
+                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
+        };
+
+        {
+            let mut col = col_arc.write().await;
+            if col.documents.remove(doc_id).is_none() {
+                return Err(format!("Document '{}' not found", doc_id));
+            }
+        }
+
+        self.unsync_document(collection_name, doc_id)?;
+        Ok(())
+    }
+
+    /// Lista todos os documentos de uma collection, ordenados pelo ID.
+    pub async fn list_documents(
+        &self,
+        collection_name: &str,
+    ) -> Result<Vec<(String, Document)>, String> {
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name)
+                .cloned()
+                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
+        };
+
+        let col = col_arc.read().await;
+        let mut docs: Vec<(String, Document)> = col
+            .documents
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        docs.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(docs)
+    }
+
+    /// Executa uma query com filtros, ordenação e limite.
+    pub async fn execute_query(
+        &self,
+        collection_name: &str,
+        query: Query,
+    ) -> Result<Vec<(String, Document)>, String> {
+        let col_arc = {
+            let cols = self.collections.read().await;
+            cols.get(collection_name)
+                .cloned()
+                .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
+        };
+
+        let mut docs: Vec<(String, Document)> = {
+            let col = col_arc.read().await;
+            col.documents
+                .iter()
+                .map(|(k, v)| (k.clone(), v.clone()))
+                .collect()
+        };
+
+        if let Some(ref filters) = query.r#where {
+            for filter in filters {
+                docs.retain(|(_, doc)| {
+                    if let Some(doc_val) = doc.fields.get(&filter.field) {
+                        compare_values(doc_val, &filter.op, &filter.value)
+                    } else {
+                        false
+                    }
+                });
+            }
+        }
+
+        if let Some(ref order) = query.order_by {
+            docs.sort_by(|a, b| {
+                let val_a = a.1.fields.get(&order.field).unwrap_or(&Value::Null);
+                let val_b = b.1.fields.get(&order.field).unwrap_or(&Value::Null);
+                let cmp = compare_for_sort(val_a, val_b);
+                match order.direction {
+                    OrderDirection::Ascending => cmp,
+                    OrderDirection::Descending => cmp.reverse(),
+                }
+            });
+        } else {
+            docs.sort_by(|a, b| a.0.cmp(&b.0));
+        }
+
+        if let Some(off) = query.offset {
+            if off < docs.len() {
+                docs.drain(0..off);
+            } else {
+                docs.clear();
+            }
+        }
+
         if let Some(lim) = query.limit {
             docs.truncate(lim);
         }
@@ -624,6 +922,7 @@ mod tests {
             }]),
             order_by: None,
             limit: None,
+            offset: None,
         };
         let res1 = db.execute_query("users", q1).unwrap();
         assert_eq!(res1.len(), 2);
@@ -642,6 +941,7 @@ mod tests {
                 direction: OrderDirection::Descending,
             }),
             limit: None,
+            offset: None,
         };
         let res2 = db.execute_query("users", q2).unwrap();
         assert_eq!(res2.len(), 2);
@@ -660,9 +960,84 @@ mod tests {
                 direction: OrderDirection::Ascending,
             }),
             limit: Some(1),
+            offset: None,
         };
         let res3 = db.execute_query("users", q3).unwrap();
         assert_eq!(res3.len(), 1);
         assert_eq!(res3[0].0, "u1"); // Ana (20)
+    }
+
+    #[test]
+    fn test_delete_collection() {
+        let temp_dir_path = "temp_test_db_delete_col".to_string();
+        if Path::new(&temp_dir_path).exists() {
+            let _ = fs::remove_dir_all(&temp_dir_path);
+        }
+        let mut db = Database::new_with_storage(temp_dir_path.clone()).unwrap();
+        db.create_collection("temporary".to_string());
+        
+        let mut fields = HashMap::new();
+        fields.insert("key".to_string(), Value::String("value".to_string()));
+        let doc = Document::new(fields);
+        db.create_document("temporary", "doc1".to_string(), doc).unwrap();
+
+        let dir_path = format!("{}/temporary", temp_dir_path);
+        assert!(Path::new(&dir_path).exists());
+
+        // Deletar
+        db.delete_collection("temporary").unwrap();
+        assert!(!Path::new(&dir_path).exists());
+        assert!(db.get_collection("temporary").is_none());
+
+        let _ = fs::remove_dir_all(&temp_dir_path);
+    }
+
+    #[test]
+    fn test_querying_offset() {
+        let mut db = Database::new();
+        db.create_collection("users".to_string());
+
+        for i in 0..5 {
+            let mut f = HashMap::new();
+            f.insert("val".to_string(), Value::Number(i as f64));
+            db.create_document("users", format!("u{}", i), Document::new(f)).unwrap();
+        }
+
+        // Query: offset 2, limit 2
+        let q = Query {
+            r#where: None,
+            order_by: None,
+            limit: Some(2),
+            offset: Some(2),
+        };
+        let res = db.execute_query("users", q).unwrap();
+        assert_eq!(res.len(), 2);
+        assert_eq!(res[0].0, "u2");
+        assert_eq!(res[1].0, "u3");
+    }
+
+    #[test]
+    fn test_automatic_updated_at() {
+        let mut db = Database::new();
+        db.create_collection("users".to_string());
+        
+        let mut fields = HashMap::new();
+        fields.insert("nome".to_string(), Value::String("Original".to_string()));
+        db.create_document("users", "u1".to_string(), Document::new(fields)).unwrap();
+
+        let doc_before = db.get_document("users", "u1").unwrap();
+        assert!(doc_before.fields.get("_updated_at").is_none());
+
+        let mut updates = HashMap::new();
+        updates.insert("nome".to_string(), Value::String("Updated".to_string()));
+        db.update_document("users", "u1", updates).unwrap();
+
+        let doc_after = db.get_document("users", "u1").unwrap();
+        assert!(doc_after.fields.get("_updated_at").is_some());
+        if let Some(Value::Number(ts)) = doc_after.fields.get("_updated_at") {
+            assert!(*ts > 0.0);
+        } else {
+            panic!("_updated_at should be a Number");
+        }
     }
 }

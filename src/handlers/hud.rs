@@ -1,12 +1,10 @@
 //Libs
 use actix_web::{web, HttpResponse, Responder, HttpRequest, http::header};
 use actix_web::cookie::{Cookie, SameSite};
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use waterbase_rust_app::{Database, Document};
 
 //Imports
 use crate::ui::templates::{login_page, dashboard_page, docs_page};
+use waterbase_rust_app::{Document, SharedDb};
 
 //Consts
 pub const SESSION_COOKIE_NAME: &str = "waterbase_session";
@@ -70,7 +68,7 @@ pub async fn login_post(form: web::Form<LoginForm>) -> impl Responder {
             .max_age(actix_web::cookie::time::Duration::hours(8))
             .same_site(SameSite::Strict)
             .finish();
-            
+
         HttpResponse::SeeOther()
             .insert_header((header::LOCATION, "/"))
             .cookie(cookie)
@@ -104,23 +102,20 @@ pub async fn docs_get(req: HttpRequest) -> impl Responder {
 
 pub async fn index(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     query: web::Query<QueryParams>,
 ) -> impl Responder {
     if !is_authenticated(&req) {
         return HttpResponse::SeeOther().insert_header((header::LOCATION, "/login")).finish();
     }
 
-    let db_read = db.read().await;
-    let mut collections: Vec<String> = db_read.collections.keys().cloned().collect();
-    collections.sort();
-
+    let collections = db.list_collections().await;
     let active_col = query.collection.clone();
     let mut documents = Vec::new();
     let mut error_msg = None;
 
     if let Some(ref col) = active_col {
-        match db_read.list_documents(col) {
+        match db.list_documents(col).await {
             Ok(docs) => documents = docs,
             Err(e) => error_msg = Some(e),
         }
@@ -133,15 +128,14 @@ pub async fn index(
 
 pub async fn create_collection(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     form: web::Form<CreateCollectionForm>,
 ) -> impl Responder {
     if !is_authenticated(&req) {
         return HttpResponse::SeeOther().insert_header((header::LOCATION, "/login")).finish();
     }
 
-    let mut db_write = db.write().await;
-    db_write.create_collection(form.name.clone());
+    db.create_collection(form.name.clone()).await;
 
     HttpResponse::SeeOther()
         .insert_header((header::LOCATION, format!("/?collection={}", form.name)))
@@ -150,7 +144,7 @@ pub async fn create_collection(
 
 pub async fn create_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<String>,
     form: web::Form<CreateDocumentForm>,
 ) -> impl Responder {
@@ -159,11 +153,10 @@ pub async fn create_document(
     }
 
     let collection_name = path.into_inner();
-    let mut db_write = db.write().await;
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
-            if let Err(e) = db_write.create_document(&collection_name, form.doc_id.clone(), doc) {
+            if let Err(e) = db.create_document(&collection_name, form.doc_id.clone(), doc).await {
                 return HttpResponse::SeeOther()
                     .insert_header((header::LOCATION, format!("/?collection={}&error={}", collection_name, e)))
                     .finish();
@@ -183,7 +176,7 @@ pub async fn create_document(
 
 pub async fn update_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
     form: web::Form<UpdateDocumentForm>,
 ) -> impl Responder {
@@ -192,11 +185,10 @@ pub async fn update_document(
     }
 
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().await;
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
-            if let Err(e) = db_write.update_document(&collection_name, &doc_id, doc.fields) {
+            if let Err(e) = db.update_document(&collection_name, &doc_id, doc.fields).await {
                 return HttpResponse::SeeOther()
                     .insert_header((header::LOCATION, format!("/?collection={}&error={}", collection_name, e)))
                     .finish();
@@ -216,7 +208,7 @@ pub async fn update_document(
 
 pub async fn delete_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     if !is_authenticated(&req) {
@@ -224,9 +216,8 @@ pub async fn delete_document(
     }
 
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().await;
 
-    if let Err(e) = db_write.delete_document(&collection_name, &doc_id) {
+    if let Err(e) = db.delete_document(&collection_name, &doc_id).await {
         return HttpResponse::SeeOther()
             .insert_header((header::LOCATION, format!("/?collection={}&error={}", collection_name, e)))
             .finish();

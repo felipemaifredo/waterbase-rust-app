@@ -1,9 +1,22 @@
 //Libs
 use actix_web::{web, HttpResponse, Responder, HttpRequest};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::RwLock;
-use waterbase_rust_app::{Database, Document, Value, Query};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+//Imports
+use waterbase_rust_app::{Document, Value, Query, SharedDb};
+
+//Types
+#[derive(serde::Deserialize, Default)]
+pub struct CreateDocumentQuery {
+    pub timestamp: Option<bool>,
+}
+
+#[derive(serde::Deserialize, Default)]
+pub struct ListDocumentsQuery {
+    pub limit: Option<usize>,
+    pub offset: Option<usize>,
+}
 
 //Funcs
 pub fn is_api_authenticated(req: &HttpRequest) -> bool {
@@ -19,29 +32,38 @@ pub fn is_api_authenticated(req: &HttpRequest) -> bool {
     false
 }
 
-pub async fn api_list_collections(req: HttpRequest, db: web::Data<Arc<RwLock<Database>>>) -> impl Responder {
+pub async fn api_list_collections(req: HttpRequest, db: web::Data<SharedDb>) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
-    let db_read = db.read().await;
-    let collections: Vec<String> = db_read.collections.keys().cloned().collect();
+    let collections = db.list_collections().await;
     HttpResponse::Ok().json(collections)
 }
 
 pub async fn api_list_documents(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<String>,
+    query: web::Query<ListDocumentsQuery>,
 ) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let collection_name = path.into_inner();
-    let db_read = db.read().await;
-    match db_read.list_documents(&collection_name) {
+    match db.list_documents(&collection_name).await {
         Ok(docs) => {
             let mut list = Vec::new();
-            for (id, doc) in docs {
+            let offset = query.offset.unwrap_or(0);
+            let limit = query.limit;
+
+            let doc_iter = docs.into_iter().skip(offset);
+            let final_docs: Vec<_> = if let Some(lim) = limit {
+                doc_iter.take(lim).collect()
+            } else {
+                doc_iter.collect()
+            };
+
+            for (id, doc) in final_docs {
                 let mut doc_json = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
                 if let serde_json::Value::Object(ref mut map) = doc_json {
                     map.insert("id".to_string(), serde_json::Value::String(id));
@@ -56,15 +78,14 @@ pub async fn api_list_documents(
 
 pub async fn api_get_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, doc_id) = path.into_inner();
-    let db_read = db.read().await;
-    if let Some(doc) = db_read.get_document(&collection_name, &doc_id) {
+    if let Some(doc) = db.get_document(&collection_name, &doc_id).await {
         HttpResponse::Ok().json(doc)
     } else {
         HttpResponse::NotFound().json(serde_json::json!({
@@ -75,21 +96,31 @@ pub async fn api_get_document(
 
 pub async fn api_create_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
+    query: web::Query<CreateDocumentQuery>,
     body: web::Json<Document>,
 ) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, mut doc_id) = path.into_inner();
-    
+
     if doc_id == "new_id" {
         doc_id = uuid::Uuid::new_v4().to_string();
     }
 
-    let mut db_write = db.write().await;
-    match db_write.create_document(&collection_name, doc_id.clone(), body.into_inner()) {
+    let mut doc = body.into_inner();
+
+    if query.timestamp.unwrap_or(false) {
+        let now_ms = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as f64;
+        doc.fields.insert("_created_at".to_string(), Value::Number(now_ms));
+    }
+
+    match db.create_document(&collection_name, doc_id.clone(), doc).await {
         Ok(_) => HttpResponse::Created().json(serde_json::json!({
             "status": "success",
             "id": doc_id
@@ -100,7 +131,7 @@ pub async fn api_create_document(
 
 pub async fn api_update_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
     body: web::Json<HashMap<String, Value>>,
 ) -> impl Responder {
@@ -108,8 +139,7 @@ pub async fn api_update_document(
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().await;
-    match db_write.update_document(&collection_name, &doc_id, body.into_inner()) {
+    match db.update_document(&collection_name, &doc_id, body.into_inner()).await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "success" })),
         Err(e) => HttpResponse::NotFound().json(serde_json::json!({ "error": e })),
     }
@@ -117,15 +147,14 @@ pub async fn api_update_document(
 
 pub async fn api_delete_document(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<(String, String)>,
 ) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, doc_id) = path.into_inner();
-    let mut db_write = db.write().await;
-    match db_write.delete_document(&collection_name, &doc_id) {
+    match db.delete_document(&collection_name, &doc_id).await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "success" })),
         Err(e) => HttpResponse::NotFound().json(serde_json::json!({ "error": e })),
     }
@@ -133,7 +162,7 @@ pub async fn api_delete_document(
 
 pub async fn api_query_documents(
     req: HttpRequest,
-    db: web::Data<Arc<RwLock<Database>>>,
+    db: web::Data<SharedDb>,
     path: web::Path<String>,
     body: web::Json<Query>,
 ) -> impl Responder {
@@ -141,8 +170,7 @@ pub async fn api_query_documents(
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let collection_name = path.into_inner();
-    let db_read = db.read().await;
-    match db_read.execute_query(&collection_name, body.into_inner()) {
+    match db.execute_query(&collection_name, body.into_inner()).await {
         Ok(docs) => {
             let mut list = Vec::new();
             for (id, doc) in docs {
@@ -156,4 +184,24 @@ pub async fn api_query_documents(
         }
         Err(e) => HttpResponse::NotFound().json(serde_json::json!({ "error": e })),
     }
+}
+
+#[allow(dead_code)]
+pub async fn api_delete_collection(
+    req: HttpRequest,
+    db: web::Data<SharedDb>,
+    path: web::Path<String>,
+) -> impl Responder {
+    if !is_api_authenticated(&req) {
+        return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
+    }
+    let collection_name = path.into_inner();
+    match db.delete_collection(&collection_name).await {
+        Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "success" })),
+        Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
+    }
+}
+
+pub async fn health() -> impl Responder {
+    HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
 }

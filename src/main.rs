@@ -1,11 +1,9 @@
 //Libs
 use actix_web::{web, App, HttpServer};
-use std::sync::Arc;
-use tokio::sync::RwLock;
 use dotenvy::dotenv;
 
 //Imports
-use waterbase_rust_app::{Database, Document, Value};
+use waterbase_rust_app::{Database, Document, Value, SharedDb};
 
 //Modules
 mod ui;
@@ -19,33 +17,39 @@ async fn main() -> std::io::Result<()> {
 
     // Cria ou carrega o banco de dados persistido no disco
     let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "data".to_string());
-    let database = Arc::new(RwLock::new(
-        Database::new_with_storage(db_path).expect("Falha ao inicializar armazenamento no disco")
-    ));
+    let db = Database::new_with_storage(db_path).expect("Falha ao inicializar armazenamento no disco");
+    let shared_db = SharedDb::from_database(db);
 
     // Seed de dados iniciais apenas se o banco estiver completamente vazio
     {
-        let mut db = database.write().await;
-        if db.collections.is_empty() {
-            db.create_collection("users".to_string());
+        let is_empty = shared_db.collections.read().await.is_empty();
+        if is_empty {
+            shared_db.create_collection("users".to_string()).await;
             let mut fields = std::collections::HashMap::new();
             fields.insert("nome".to_string(), Value::String("Felipe".to_string()));
             fields.insert("idade".to_string(), Value::Number(29.0));
             fields.insert("ativo".to_string(), Value::Boolean(true));
             let doc = Document::new(fields);
-            let _ = db.create_document("users", "felipe_id".to_string(), doc);
+            let _ = shared_db.create_document("users", "felipe_id".to_string(), doc).await;
         }
     }
 
-    let shared_db = web::Data::new(database);
+    let data = web::Data::new(shared_db);
     let port_str = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let port = port_str.parse::<u16>().unwrap_or(8080);
     let host = std::env::var("HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
     println!("Servidor rodando em http://{}:{}", host, port);
 
     HttpServer::new(move || {
+        let cors = actix_cors::Cors::default()
+            .allow_any_origin()
+            .allow_any_method()
+            .allow_any_header()
+            .max_age(3600);
+
         App::new()
-            .app_data(shared_db.clone())
+            .wrap(cors)
+            .app_data(data.clone())
             // HUD Dashboard Routes
             .route("/", web::get().to(handlers::hud::index))
             .route("/login", web::get().to(handlers::hud::login_get))
@@ -56,7 +60,8 @@ async fn main() -> std::io::Result<()> {
             .route("/collections/{col}/documents", web::post().to(handlers::hud::create_document))
             .route("/collections/{col}/documents/{doc}/update", web::post().to(handlers::hud::update_document))
             .route("/collections/{col}/documents/{doc}/delete", web::post().to(handlers::hud::delete_document))
-            
+            .route("/health", web::get().to(handlers::api::health))
+
             // External API Routes (REST v1)
             .service(
                 web::scope("/api/v1")

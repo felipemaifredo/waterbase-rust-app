@@ -131,7 +131,7 @@ pub fn docs_page() -> Markup {
                                     span class="badge badge-get" { "GET" }
                                     span class="api-path" { "/api/v1/{collection}" }
                                 }
-                                p class="api-description" { "Retorna uma lista com todos os documentos contidos na coleção especificada, em formato de array de objetos com o id injetado." }
+                                p class="api-description" { "Retorna uma lista com todos os documentos contidos na coleção especificada, em formato de array de objetos com o id injetado. Aceita os query parameters de paginação opcionais 'limit' e 'offset'." }
                                 div class="api-details" {
                                     div class="details-box" {
                                         h4 { "Comando Curl" }
@@ -175,12 +175,12 @@ pub fn docs_page() -> Markup {
                                     span class="badge badge-post" { "POST" }
                                     span class="api-path" { "/api/v1/{collection}/{document_id}" }
                                 }
-                                p class="api-description" { "Cria ou substitui completamente um documento. Se o ID enviado for 'new_id', o banco gerará um UUID v4 dinamicamente." }
+                                p class="api-description" { "Cria ou substitui completamente um documento. Se o ID enviado for 'new_id', o banco gerará um UUID v4 dinamicamente. Aceita ?timestamp=true na query para injetar o timestamp _created_at." }
                                 div class="api-details" {
                                     div class="details-box" {
                                         h4 { "Comando Curl" }
                                         pre class="code-block" {
-                                            "curl -X POST " (base_url) "/api/v1/users/new_id \\\n     -H \"Authorization: Bearer " (api_key) " \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\"nome\": \"Maria\", \"idade\": 25}'"
+                                            "curl -X POST " (base_url) "/api/v1/users/new_id?timestamp=true \\\n     -H \"Authorization: Bearer " (api_key) " \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\"nome\": \"Maria\", \"idade\": 25}'"
                                         }
                                     }
                                     div class="details-box" {
@@ -253,6 +253,29 @@ pub fn docs_page() -> Markup {
                                         h4 { "Resposta de Exemplo" }
                                         pre class="code-block" {
                                             "{\n  \"status\": \"success\"\n}"
+                                        }
+                                    }
+                                }
+                            }
+
+
+                            div class="api-endpoint" {
+                                div class="api-header" {
+                                    span class="badge badge-get" { "GET" }
+                                    span class="api-path" { "/health" }
+                                }
+                                p class="api-description" { "Retorna o status de saúde do servidor (health check). Endpoint anônimo sem exigência de cabeçalho Authorization." }
+                                div class="api-details" {
+                                    div class="details-box" {
+                                        h4 { "Comando Curl" }
+                                        pre class="code-block" {
+                                            "curl -X GET " (base_url) "/health"
+                                        }
+                                    }
+                                    div class="details-box" {
+                                        h4 { "Resposta de Exemplo" }
+                                        pre class="code-block" {
+                                            "{\n  \"status\": \"ok\"\n}"
                                         }
                                     }
                                 }

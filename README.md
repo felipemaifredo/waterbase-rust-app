@@ -70,7 +70,7 @@ Todas as requisições à API exigem o cabeçalho HTTP:
 | **GET** | `/api/v1/collections` | Lista todas as coleções do banco de dados |
 | **GET** | `/api/v1/{collection}` | Retorna todos os documentos de uma coleção (com o ID injetado no JSON) |
 | **GET** | `/api/v1/{collection}/{document_id}` | Obtém o conteúdo JSON de um documento específico |
-| **POST** | `/api/v1/{collection}/{document_id}` | Cria ou substitui um documento. (Envie `new_id` no lugar do `document_id` para gerar um UUID v4 automaticamente) |
+| **POST** | `/api/v1/{collection}/{document_id}` | Cria ou substitui um documento. (Envie `new_id` no ID para gerar um UUID v4 automaticamente. Aceita `?timestamp=true` para injetar `_created_at` automaticamente) |
 | **PUT** | `/api/v1/{collection}/{document_id}` | Atualização parcial (realiza o merge de campos) no documento especificado |
 | **DELETE** | `/api/v1/{collection}/{document_id}` | Exclui permanentemente um documento da memória e do disco |
 | **POST** | `/api/v1/{collection}/_query` | Executa filtros complexos, ordenação e limite de busca no banco |
