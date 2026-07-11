@@ -4,15 +4,15 @@ import { check, sleep } from "k6";
 // Configurações do teste de estresse
 export const options = {
   stages: [
-    { duration: "10s", target: 40 },  // Ramp-up: sobe para 20 usuários simultâneos em 10s
-    { duration: "30s", target: 100 },  // Estresse: sobe para 50 usuários simultâneos em 30s
-    { duration: "20s", target: 200 }, // Pico: sobe para 100 usuários simultâneos em 20s
-    { duration: "30s", target: 200 }, // Sustenta 100 usuários simultâneos por 30s
-    { duration: "15s", target: 0 }    // Ramp-down: reduz para 0 usuários em 15s
+    { duration: "30s", target: 100 },  // Ramp-up inicial
+    { duration: "30s", target: 300 },  // Ramp-up intermediário
+    { duration: "30s", target: 500 },  // Pico: sobe para 500 usuários simultâneos
+    { duration: "60s", target: 500 },  // Sustenta 500 usuários por 1 minuto
+    { duration: "20s", target: 0 }     // Ramp-down rápido para 0
   ]
-};
+}
 
-const BASE_URL = __ENV.BASE_URL || "http://127.0.0.1:8080/api/v1";
+const BASE_URL = __ENV.BASE_URL || "http://0.0.0.0:8080/api/v1";
 const API_KEY = __ENV.API_KEY || "waterbase_secret_token_123";
 
 const params = {

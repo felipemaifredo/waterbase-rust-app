@@ -1,5 +1,5 @@
 # Estágio de build
-FROM rust:1.75-slim AS builder
+FROM rust:1.88-slim AS builder
 
 WORKDIR /usr/src/app
 COPY . .
@@ -15,6 +15,17 @@ WORKDIR /app
 
 # Copia o executável gerado
 COPY --from=builder /usr/src/app/target/release/waterbase-rust-app /app/waterbase-rust-app
+
+# ---------------------------------------------------------------------------
+# Labels de recomendação de recursos
+# Os limites reais de CPU e RAM são aplicados em tempo de execução via:
+#   docker run --memory="256m" --memory-swap="512m" --cpus="0.5" ...
+# Ou configurados no docker-compose.yml em deploy.resources.limits
+# ---------------------------------------------------------------------------
+LABEL com.waterbase.resources.memory.limit="256m" \
+      com.waterbase.resources.memory.swap="512m" \
+      com.waterbase.resources.cpu.limit="0.5" \
+      com.waterbase.resources.cpu.shares="512"
 
 # Diretório padrão para o banco de dados persistente
 VOLUME ["/app/data"]
