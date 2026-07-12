@@ -110,8 +110,6 @@ Suba o serviço com:
 docker compose up -d
 ```
 
-
-
 ## 📦 Compilação e Execução (Sem Docker)
 
 Para rodar diretamente no servidor, compile com a flag `--release` para habilitar as otimizações do Rust.
