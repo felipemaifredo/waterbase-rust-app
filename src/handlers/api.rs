@@ -202,6 +202,11 @@ pub async fn api_delete_collection(
     }
 }
 
-pub async fn health() -> impl Responder {
-    HttpResponse::Ok().json(serde_json::json!({ "status": "ok" }))
+pub async fn health(db: web::Data<SharedDb>) -> impl Responder {
+    let collection_count = db.collections.read().await.len();
+    HttpResponse::Ok().json(serde_json::json!({
+        "status": "ok",
+        "version": env!("CARGO_PKG_VERSION"),
+        "collections": collection_count
+    }))
 }

@@ -1,36 +1,35 @@
+version: "3.9"
+
 services:
   waterbase:
-    build:
-      context: .
-      dockerfile: Dockerfile
-    image: waterbase-rust-app:latest
+    build: .
     container_name: waterbase
     restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      - APP_ENV=production
+      - HOST=0.0.0.0
+      - PORT=8080
+      - DATABASE_PATH=/app/data
+      - ADMIN_USER=${ADMIN_USER}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      - API_KEY=${API_KEY}
+      - ALLOWED_ORIGIN=${ALLOWED_ORIGIN}
+    volumes:
+      - waterbase_data:/app/data
 
     # -------------------------------------------------------------------------
     # Limites de recursos do container
     # -------------------------------------------------------------------------
-    deploy:
-      resources:
-        limits:
-          memory: 256M      # Limite máximo de RAM
-          cpus: "0.50"      # Máximo de 50% de 1 núcleo de CPU
-        reservations:
-          memory: 64M       # RAM garantida mínima
-          cpus: "0.10"      # CPU garantida mínima
-
-    ports:
-      - "8080:8080"
-
-    volumes:
-      - waterbase_data:/app/data
-
-    environment:
-      HOST: "0.0.0.0"
-      PORT: "8080"
-      DATABASE_PATH: "/app/data"
-      APP_ENV: "production"
+    # deploy:
+    #   resources:
+    #     limits:
+    #       memory: 256M      # Limite máximo de RAM
+    #       cpus: "0.50"      # Máximo de 50% de 1 núcleo de CPU
+    #     reservations:
+    #       memory: 64M       # RAM garantida mínima
+    #       cpus: "0.10"      # CPU garantida mínima
 
 volumes:
   waterbase_data:
-    driver: local

@@ -62,9 +62,11 @@ pub async fn login_post(form: web::Form<LoginForm>) -> impl Responder {
     let pass_ok = form.password.as_deref() == Some(&admin_pass);
 
     if user_ok && pass_ok {
+        let is_prod = std::env::var("APP_ENV").unwrap_or_else(|_| "development".to_string()) == "production";
         let cookie = Cookie::build(SESSION_COOKIE_NAME, SESSION_COOKIE_VALUE)
             .path("/")
             .http_only(true)
+            .secure(is_prod)
             .max_age(actix_web::cookie::time::Duration::hours(8))
             .same_site(SameSite::Strict)
             .finish();

@@ -3,7 +3,7 @@ use actix_web::{web, App, HttpServer};
 use dotenvy::dotenv;
 
 //Imports
-use waterbase_rust_app::{Database, Document, Value, SharedDb};
+use waterbase_rust_app::{Database, SharedDb};
 
 //Modules
 mod ui;
@@ -20,20 +20,6 @@ async fn main() -> std::io::Result<()> {
     let db = Database::new_with_storage(db_path).expect("Falha ao inicializar armazenamento no disco");
     let shared_db = SharedDb::from_database(db);
 
-    // Seed de dados iniciais apenas se o banco estiver completamente vazio
-    {
-        let is_empty = shared_db.collections.read().await.is_empty();
-        if is_empty {
-            shared_db.create_collection("users".to_string()).await;
-            let mut fields = std::collections::HashMap::new();
-            fields.insert("nome".to_string(), Value::String("Felipe".to_string()));
-            fields.insert("idade".to_string(), Value::Number(29.0));
-            fields.insert("ativo".to_string(), Value::Boolean(true));
-            let doc = Document::new(fields);
-            let _ = shared_db.create_document("users", "felipe_id".to_string(), doc).await;
-        }
-    }
-
     let data = web::Data::new(shared_db);
     let port_str = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let port = port_str.parse::<u16>().unwrap_or(8080);
@@ -41,11 +27,20 @@ async fn main() -> std::io::Result<()> {
     println!("Servidor rodando em http://{}:{}", host, port);
 
     HttpServer::new(move || {
-        let cors = actix_cors::Cors::default()
-            .allow_any_origin()
+        let mut cors = actix_cors::Cors::default()
             .allow_any_method()
             .allow_any_header()
             .max_age(3600);
+
+        if let Ok(allowed_origin) = std::env::var("ALLOWED_ORIGIN") {
+            if !allowed_origin.trim().is_empty() {
+                cors = cors.allowed_origin(&allowed_origin);
+            } else {
+                cors = cors.allow_any_origin();
+            }
+        } else {
+            cors = cors.allow_any_origin();
+        }
 
         App::new()
             .wrap(cors)
