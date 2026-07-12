@@ -10,7 +10,6 @@ Todas as configurações de produção são controladas por variáveis de ambien
 
 | Configuração | Local (`.env`) | Produção (PaaS/Docker) |
 |---|---|---|
-| **Cookie Secure** | `APP_ENV=dev` → flag desativada | `APP_ENV=prod` → flag ativada |
 | **CORS** | `ALLOWED_ORIGIN` ausente → libera qualquer origem | `ALLOWED_ORIGIN=https://seu-dominio.com` → restrito |
 | **Health check** | Funciona igual nos dois ambientes | Funciona igual |
 | **Docker** | Não usado — rode com `cargo run` | `docker compose up -d` |
@@ -132,15 +131,52 @@ Para manter o processo rodando em background, use `systemd`, `supervisord`, ou u
 | Plataforma | Notas |
 | :--- | :--- |
 | **[Railway](https://railway.app)** | Detecta Dockerfile automaticamente. Configure as variáveis de ambiente no painel e associe um volume persistente a `/app/data`. |
-| **[Render](https://render.com)** | Use "Web Service" com Docker. O disco persistente deve ser montado em `/app/data`. |
+| **[Render](https://render.com)** | Use o `render.yaml` incluso no projeto. O disco persistente é configurado automaticamente. Veja a seção abaixo. |
 | **[Fly.io](https://fly.io)** | Use `fly launch` + `fly volumes create`. Monte o volume em `/app/data` no `fly.toml`. |
+
+---
+
+## 🟣 Deploy no Render (Passo a Passo)
+
+O projeto inclui um arquivo [`render.yaml`](./render.yaml) que configura automaticamente o serviço e o disco persistente.
+
+### Por que a persistência pode falhar no Render com Docker
+
+O Render monta o **Persistent Disk** em tempo de execução, **após** o build da imagem Docker. Isso significa que o `chown` feito no `Dockerfile` não tem efeito sobre o disco montado — ele chega como `root:root`.
+
+Este projeto resolve isso com o [`docker-entrypoint.sh`](./docker-entrypoint.sh): ele roda como root, corrige as permissões do diretório (`DATABASE_PATH`) e então inicia a aplicação como usuário não-root via `su-exec`.
+
+### Deploy via render.yaml (recomendado)
+
+1. Faça push do repositório para o GitHub/GitLab
+2. No painel do Render, clique em **"New" → "Blueprint"**
+3. Conecte o repositório — o Render detecta o `render.yaml` automaticamente
+4. Configure as variáveis marcadas como `sync: false` no painel:
+   - `ADMIN_USER`
+   - `ADMIN_PASSWORD`
+   - `API_KEY`
+   - `AUTH_HASH_KEY`
+   - `ALLOWED_ORIGIN` (ex: `https://seu-dominio.com`)
+5. Clique em **Apply** — o Render cria o serviço e o disco de 1GB em `/app/data`
+
+> **Atenção:** O Persistent Disk no Render requer o plano **Starter** ou superior. O plano gratuito usa filesystem efêmero (dados perdidos no restart).
+
+### Deploy manual (sem render.yaml)
+
+1. Crie um **Web Service** com runtime **Docker**
+2. Em **Settings → Disks**, adicione um disco:
+   - **Mount Path:** `/app/data`
+   - **Size:** 1 GB
+3. Em **Environment**, adicione todas as variáveis do `.env.example`
+4. Certifique-se que `DATABASE_PATH=/app/data` (mesmo path do disco)
+
+---
 
 ### Checklist pré-deploy
 
 - [ ] `APP_ENV=prod` configurado
 - [ ] `ADMIN_PASSWORD` e `API_KEY` são valores fortes e únicos
-- [ ] Cookie `secure(true)` habilitado
 - [ ] CORS restrito à origem correta via `ALLOWED_ORIGIN`
-- [ ] Volume persistente montado em `DATABASE_PATH`
+- [ ] Volume persistente montado em `DATABASE_PATH` (`/app/data`)
 - [ ] Health check `/health` respondendo corretamente
 - [ ] `.env` não está no repositório (`.gitignore` configurado)

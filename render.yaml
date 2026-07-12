@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: waterbase
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health
+    envVars:
+      - key: APP_ENV
+        value: prod
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: DATABASE_PATH
+        value: /app/data
+      - key: ADMIN_USER
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: API_KEY
+        sync: false
+      - key: AUTH_HASH_KEY
+        sync: false
+      - key: ALLOWED_ORIGIN
+        sync: false
+    disk:
+      name: waterbase-data
+      mountPath: /app/data
+      sizeGB: 1

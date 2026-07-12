@@ -23,8 +23,10 @@ const params = {
 };
 
 export default function () {
-  const colName = `stress_col_${__VU}`
-  const docId = `doc_${__ITER}`
+  // Agrupa os VUs em 10 coleções no total para ter mais documentos por coleção
+  const colName = `stress_col_${__VU % 10}`
+  // Inclui o __VU no docId para evitar colisões entre VUs compartilhando a mesma coleção
+  const docId = `doc_${__VU}_${__ITER}`
 
   // 0. GET /health - Verificar saúde do servidor (endpoint público)
   const healthUrl = BASE_URL.replace("/api/v1", "/health")

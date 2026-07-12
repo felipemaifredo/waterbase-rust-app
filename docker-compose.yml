@@ -21,14 +21,14 @@ services:
     # -------------------------------------------------------------------------
     # Limites de recursos do container
     # -------------------------------------------------------------------------
-    deploy:
-      resources:
-        limits:
-          memory: 512M # Limite máximo de RAM
-          cpus: "1" # Máximo de 1 núcleo de CPU
-        reservations:
-          memory: 256M # RAM garantida mínima
-          cpus: "0.50" # CPU garantida mínima
+    # deploy:
+    #  resources:
+    #    limits:
+    #      memory: 512M # Limite máximo de RAM
+    #      cpus: "1" # Máximo de 1 núcleo de CPU
+    #    reservations:
+    #      memory: 256M # RAM garantida mínima
+    #      cpus: "0.50" # CPU garantida mínima
 
 volumes:
   waterbase_data:
