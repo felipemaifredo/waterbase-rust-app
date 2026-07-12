@@ -134,7 +134,7 @@ export default function () {
 
   // 8.2 Login
   const loginPayload = JSON.stringify({
-    id: registeredId,
+    email: testEmail,
     password: "super_secure_pass_123"
   })
 
@@ -158,36 +158,32 @@ export default function () {
     "auth doc omits password_hash": (r) => r.json().password_hash === undefined
   })
 
-  const cookies = authRes.cookies
-  const sessionCookie = cookies["auth_session"] && cookies["auth_session"][0]
-  const sessionToken = sessionCookie ? sessionCookie.value : null
+  const sessionToken = authRes.json().token
 
   if (sessionToken) {
-    const authCookieHeader = {
+    const sessionHeader = {
       headers: Object.assign({}, params.headers, {
-        "Cookie": `auth_session=${sessionToken}`
+        "X-Session-Token": sessionToken
       })
     }
 
     // 8.3 Revalidate
-    const revalRes = http.get(`${BASE_URL}/auth/revalidate`, authCookieHeader)
+    const revalRes = http.get(`${BASE_URL}/auth/revalidate`, sessionHeader)
     check(revalRes, {
       "GET /auth/revalidate status is 200": (r) => r.status === 200,
       "revalidate returns id": (r) => r.json().id === registeredId
     })
 
-    const revalCookies = revalRes.cookies
-    const revalSessionCookie = revalCookies["auth_session"] && revalCookies["auth_session"][0]
-    const nextSessionToken = revalSessionCookie ? revalSessionCookie.value : sessionToken
+    const nextToken = revalRes.json().token || sessionToken
 
-    const logoutCookieHeader = {
+    const logoutHeader = {
       headers: Object.assign({}, params.headers, {
-        "Cookie": `auth_session=${nextSessionToken}`
+        "X-Session-Token": nextToken
       })
     }
 
     // 8.4 Logout
-    const logoutRes = http.post(`${BASE_URL}/auth/logout`, null, logoutCookieHeader)
+    const logoutRes = http.post(`${BASE_URL}/auth/logout`, null, logoutHeader)
     check(logoutRes, {
       "POST /auth/logout status is 200": (r) => r.status === 200,
       "logout returns success": (r) => r.json().success === true

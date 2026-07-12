@@ -1,6 +1,5 @@
 //Libs
 use actix_web::{web, HttpRequest, HttpResponse, Responder};
-use actix_web::cookie::{Cookie, SameSite};
 use std::collections::HashMap;
 
 //Imports
@@ -18,7 +17,7 @@ pub struct RegisterPayload {
 
 #[derive(serde::Deserialize)]
 pub struct LoginPayload {
-    pub id: String,
+    pub email: String,
     pub password: String,
 }
 
@@ -94,26 +93,40 @@ pub async fn api_auth_login(
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let payload = body.into_inner();
-    
-    let auth_doc = match db.get_document("authentication", &payload.id).await {
-        Some(doc) => doc,
-        None => {
+
+    // Busca o documento de autenticação pelo email
+    let query = waterbase_rust_app::Query {
+        r#where: Some(vec![waterbase_rust_app::WhereFilter {
+            field: "email".to_string(),
+            op: waterbase_rust_app::WhereOp::Equal,
+            value: Value::String(payload.email.clone()),
+        }]),
+        order_by: None,
+        limit: Some(1),
+        offset: None,
+    };
+
+    let results = match db.execute_query("authentication", query).await {
+        Ok(docs) if !docs.is_empty() => docs,
+        _ => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
                 "authenticated": false,
                 "error": "Credenciais inválidas"
             }));
         }
     };
-    
+
+    let (user_id, auth_doc) = results.into_iter().next().unwrap();
+
     let password_hash_val = match auth_doc.fields.get("password_hash") {
-        Some(Value::String(s)) => s,
+        Some(Value::String(s)) => s.clone(),
         _ => {
             return HttpResponse::InternalServerError().json(serde_json::json!({
                 "error": "Dados de autenticação corrompidos no banco"
             }));
         }
     };
-    
+
     let hash_key = match std::env::var("AUTH_HASH_KEY") {
         Ok(val) => val,
         Err(_) => {
@@ -122,11 +135,10 @@ pub async fn api_auth_login(
             }));
         }
     };
-    
+
     let combined_password = format!("{}{}", payload.password, hash_key);
-    let hash_to_verify = password_hash_val.clone();
     let verified = tokio::task::spawn_blocking(move || {
-        bcrypt::verify(&combined_password, &hash_to_verify)
+        bcrypt::verify(&combined_password, &password_hash_val)
     }).await;
     match verified {
         Ok(Ok(true)) => {}
@@ -137,27 +149,17 @@ pub async fn api_auth_login(
             }));
         }
     }
-    
+
     let session_token = uuid::Uuid::new_v4().to_string();
     {
         let mut sessions = db.sessions.write().await;
-        sessions.insert(session_token.clone(), payload.id.clone());
+        sessions.insert(session_token.clone(), user_id.clone());
     }
-    
-    let is_prod = std::env::var("APP_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod";
-    let cookie = Cookie::build("auth_session", session_token)
-        .path("/")
-        .http_only(true)
-        .secure(is_prod)
-        .max_age(actix_web::cookie::time::Duration::hours(8))
-        .same_site(SameSite::Strict)
-        .finish();
-        
-    HttpResponse::Ok()
-        .cookie(cookie)
-        .json(serde_json::json!({
-            "id": payload.id
-        }))
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "id": user_id,
+        "token": session_token
+    }))
 }
 
 pub async fn api_auth_revalidate(
@@ -167,8 +169,17 @@ pub async fn api_auth_revalidate(
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
-    let session_cookie = match req.cookie("auth_session") {
-        Some(c) => c,
+
+    let old_token = match req.headers().get("X-Session-Token") {
+        Some(v) => match v.to_str() {
+            Ok(s) => s.to_string(),
+            Err(_) => {
+                return HttpResponse::Unauthorized().json(serde_json::json!({
+                    "authenticated": false,
+                    "error": "Token de sessão inválido"
+                }));
+            }
+        },
         None => {
             return HttpResponse::Unauthorized().json(serde_json::json!({
                 "authenticated": false,
@@ -176,12 +187,10 @@ pub async fn api_auth_revalidate(
             }));
         }
     };
-    
-    let old_token = session_cookie.value();
-    
+
     let user_id = {
         let sessions = db.sessions.read().await;
-        match sessions.get(old_token) {
+        match sessions.get(&old_token) {
             Some(id) => id.clone(),
             None => {
                 return HttpResponse::Unauthorized().json(serde_json::json!({
@@ -191,28 +200,18 @@ pub async fn api_auth_revalidate(
             }
         }
     };
-    
+
     let new_token = uuid::Uuid::new_v4().to_string();
     {
         let mut sessions = db.sessions.write().await;
-        sessions.remove(old_token);
+        sessions.remove(&old_token);
         sessions.insert(new_token.clone(), user_id.clone());
     }
-    
-    let is_prod = std::env::var("APP_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod";
-    let cookie = Cookie::build("auth_session", new_token)
-        .path("/")
-        .http_only(true)
-        .secure(is_prod)
-        .max_age(actix_web::cookie::time::Duration::hours(8))
-        .same_site(SameSite::Strict)
-        .finish();
-        
-    HttpResponse::Ok()
-        .cookie(cookie)
-        .json(serde_json::json!({
-            "id": user_id
-        }))
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "id": user_id,
+        "token": new_token
+    }))
 }
 
 pub async fn api_auth_logout(
@@ -222,24 +221,18 @@ pub async fn api_auth_logout(
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
-    if let Some(cookie) = req.cookie("auth_session") {
-        let mut sessions = db.sessions.write().await;
-        sessions.remove(cookie.value());
+
+    if let Some(token_header) = req.headers().get("X-Session-Token") {
+        if let Ok(token) = token_header.to_str() {
+            let mut sessions = db.sessions.write().await;
+            sessions.remove(token);
+        }
     }
-    
-    let cookie = Cookie::build("auth_session", "")
-        .path("/")
-        .http_only(true)
-        .max_age(actix_web::cookie::time::Duration::ZERO)
-        .same_site(SameSite::Strict)
-        .finish();
-        
-    HttpResponse::Ok()
-        .cookie(cookie)
-        .json(serde_json::json!({
-            "success": true,
-            "message": "Logout efetuado com sucesso"
-        }))
+
+    HttpResponse::Ok().json(serde_json::json!({
+        "success": true,
+        "message": "Logout efetuado com sucesso"
+    }))
 }
 
 #[cfg(test)]
@@ -253,11 +246,11 @@ mod tests {
             std::env::set_var("AUTH_HASH_KEY", "test_hash_key_123");
             std::env::set_var("API_KEY", "test_api_key");
         }
-        
+
         let db = Database::new();
         let shared_db = SharedDb::from_database(db);
         let app_data = web::Data::new(shared_db);
-        
+
         let app = actix_web::test::init_service(
             actix_web::App::new()
                 .app_data(app_data.clone())
@@ -266,7 +259,7 @@ mod tests {
                 .route("/auth/revalidate", web::get().to(api_auth_revalidate))
                 .route("/auth/logout", web::post().to(api_auth_logout))
         ).await;
-        
+
         // 1. Test Register
         let register_payload = serde_json::json!({
             "email": "user@example.com",
@@ -274,73 +267,63 @@ mod tests {
             "name": "Jane Doe",
             "role": "admin"
         });
-        
+
         let req = actix_web::test::TestRequest::post()
             .uri("/auth/register")
             .insert_header(("Authorization", "Bearer test_api_key"))
             .set_json(&register_payload)
             .to_request();
-            
+
         let resp = actix_web::test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::CREATED);
-        
+
         let body: serde_json::Value = actix_web::test::read_body_json(resp).await;
         let user_id = body.get("id").unwrap().as_str().unwrap().to_string();
         assert!(!user_id.is_empty());
-        
+
         // 2. Test Login
         let login_payload = serde_json::json!({
-            "id": user_id,
+            "email": "user@example.com",
             "password": "my_password"
         });
-        
+
         let req = actix_web::test::TestRequest::post()
             .uri("/auth/login")
             .insert_header(("Authorization", "Bearer test_api_key"))
             .set_json(&login_payload)
             .to_request();
-            
+
         let resp = actix_web::test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
-        
-        // Check session cookie is set and extract session token before consuming resp
-        let session_token = {
-            let cookies = resp.headers().get(actix_web::http::header::SET_COOKIE).unwrap();
-            let cookie_str = cookies.to_str().unwrap();
-            assert!(cookie_str.contains("auth_session="));
-            cookie_str
-                .split(';')
-                .next()
-                .unwrap()
-                .split('=')
-                .nth(1)
-                .unwrap()
-                .to_string()
-        };
-        
+
         let body: serde_json::Value = actix_web::test::read_body_json(resp).await;
         assert_eq!(body.get("id").unwrap().as_str().unwrap(), user_id);
-            
+        let session_token = body.get("token").unwrap().as_str().unwrap().to_string();
+        assert!(!session_token.is_empty());
+
         // 3. Test Revalidate
         let req = actix_web::test::TestRequest::get()
             .uri("/auth/revalidate")
             .insert_header(("Authorization", "Bearer test_api_key"))
-            .insert_header((actix_web::http::header::COOKIE, format!("auth_session={}", session_token)))
+            .insert_header(("X-Session-Token", session_token.clone()))
             .to_request();
-            
+
         let resp = actix_web::test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
-        
+
         let body: serde_json::Value = actix_web::test::read_body_json(resp).await;
         assert_eq!(body.get("id").unwrap().as_str().unwrap(), user_id);
-        
+        let new_token = body.get("token").unwrap().as_str().unwrap().to_string();
+        assert!(!new_token.is_empty());
+        assert_ne!(new_token, session_token);
+
         // 4. Test Logout
         let req = actix_web::test::TestRequest::post()
             .uri("/auth/logout")
             .insert_header(("Authorization", "Bearer test_api_key"))
-            .insert_header((actix_web::http::header::COOKIE, format!("auth_session={}", session_token)))
+            .insert_header(("X-Session-Token", new_token))
             .to_request();
-            
+
         let resp = actix_web::test::call_service(&app, req).await;
         assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     }

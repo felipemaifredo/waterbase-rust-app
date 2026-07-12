@@ -1,0 +1,247 @@
+[
+  {
+    "id": "32e6ee80-3475-46e9-9df2-c110a53c7b32",
+    "name": "Waterbase APIs",
+    "requests": [
+      {
+        "id": "52f7bdeb-7926-439c-8c9c-8641729ea3f6",
+        "name": "Segurança (Chamada Sem Token)",
+        "method": "GET",
+        "url": "{{URL}}/api/v1/collections",
+        "headers": {},
+        "params": {},
+        "body": null,
+        "createdAt": 1783703954382,
+        "lastResponse": {
+          "error": "Request failed with status code 401",
+          "status": 401,
+          "statusText": "Unauthorized",
+          "headers": {
+            "content-length": "24",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:19:50 GMT"
+          },
+          "data": {
+            "error": "Unauthorized"
+          },
+          "timestamp": 1783703990301,
+          "duration": 19
+        }
+      },
+      {
+        "id": "0b39ebc4-9343-496b-a00c-615fa52fba2d",
+        "name": "Listar Coleções (GET)",
+        "method": "GET",
+        "url": "{{URL}}/api/v1/collections",
+        "headers": {
+          "Authorization": "Bearer waterbase_secret_token_123"
+        },
+        "params": {},
+        "body": null,
+        "createdAt": 1783703999224,
+        "lastResponse": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": {
+            "content-length": "16",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:24:10 GMT"
+          },
+          "data": [
+            "data",
+            "users"
+          ],
+          "timestamp": 1783704250128,
+          "duration": 25
+        }
+      },
+      {
+        "id": "7cafb345-1714-4d33-beee-c77d5b17d984",
+        "name": "Criar Documento (POST)",
+        "method": "POST",
+        "url": "{{URL}}/api/v1/users/new_id ",
+        "headers": {
+          "Content-Type": "application/json",
+          "Authorization": "Bearer waterbase_secret_token_123"
+        },
+        "params": {},
+        "body": {
+          "nome": "Maria",
+          "idade": 25,
+          "teste": "teste"
+        },
+        "createdAt": 1783704169484,
+        "lastResponse": {
+          "status": 201,
+          "statusText": "Created",
+          "headers": {
+            "content-length": "64",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:34:28 GMT"
+          },
+          "data": {
+            "id": "a3370591-7649-4426-bd2e-7ef52c318fd3",
+            "status": "success"
+          },
+          "timestamp": 1783704868866,
+          "duration": 34
+        }
+      },
+      {
+        "id": "adc9b5cc-26f9-4230-ac57-45a110203789",
+        "name": "Listar Coleção",
+        "method": "GET",
+        "url": "{{URL}}/api/v1/users",
+        "headers": {
+          "Authorization": "Bearer waterbase_secret_token_123",
+          "Content-Type": "application/json"
+        },
+        "params": {},
+        "body": null,
+        "createdAt": 1783704254559,
+        "lastResponse": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": {
+            "content-length": "502",
+            "connection": "close",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:38:53 GMT"
+          },
+          "data": [
+            {
+              "ativo": true,
+              "id": "111",
+              "idade": 31,
+              "nome": "Exemplo111",
+              "profissao": "Desenvolvedor"
+            },
+            {
+              "ativo": false,
+              "id": "171acc4c-6509-42d7-9d6a-80e18525ff53",
+              "idade": 32,
+              "nome": "Pedro"
+            },
+            {
+              "ativo": false,
+              "id": "2f8a4190-ccd9-427a-bf48-533967d1f00f",
+              "idade": 32,
+              "nome": "Pedro"
+            },
+            {
+              "ativo": false,
+              "id": "5de8ea6c-cfbd-4de3-a3d8-7260e6d5bd7e",
+              "idade": 32,
+              "nome": "Pedro"
+            },
+            {
+              "ativo": false,
+              "id": "b1828723-c67b-4bd0-8c33-af056d19ffec",
+              "idade": 32,
+              "nome": "Pedro"
+            },
+            {
+              "id": "pedro_id",
+              "idade": 25,
+              "nome": "Maria",
+              "teste": "teste"
+            }
+          ],
+          "timestamp": 1783705133865,
+          "duration": 23
+        }
+      },
+      {
+        "id": "cbb1ae48-42a5-4b7f-90cf-a8c31b34b816",
+        "name": "Listar Doc",
+        "method": "GET",
+        "url": "{{URL}}/api/v1/users/111",
+        "headers": {
+          "Authorization": "Bearer waterbase_secret_token_123"
+        },
+        "params": {},
+        "body": null,
+        "createdAt": 1783704500608,
+        "lastResponse": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": {
+            "content-length": "75",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:54:48 GMT"
+          },
+          "data": {
+            "ativo": true,
+            "profissao": "Desenvolvedor",
+            "idade": 31,
+            "nome": "Exemplo111"
+          },
+          "timestamp": 1783706088419,
+          "duration": 29
+        }
+      },
+      {
+        "id": "0a6f253f-256f-4945-96b5-7797717ae3b9",
+        "name": "7. Excluir um Documento",
+        "method": "DELETE",
+        "url": "{{URL}}/api/v1/users/111",
+        "headers": {
+          "Authorization": "Bearer waterbase_secret_token_123"
+        },
+        "params": {},
+        "body": null,
+        "createdAt": 1783704970438,
+        "lastResponse": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": {
+            "content-length": "20",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:55:14 GMT"
+          },
+          "data": {
+            "status": "success"
+          },
+          "timestamp": 1783706114749,
+          "duration": 19
+        }
+      },
+      {
+        "id": "44999bca-9c31-4ffa-b6e0-46964b04f944",
+        "name": "6. Atualizar Parcialmente um Documento (Merge)",
+        "method": "PUT",
+        "url": "{{URL}}/api/v1/users/111",
+        "headers": {
+          "Authorization": "Bearer waterbase_secret_token_123"
+        },
+        "params": {},
+        "body": {
+          "idade": 31,
+          "profissao": "Desenvolvedor"
+        },
+        "createdAt": 1783705026715,
+        "lastResponse": {
+          "status": 200,
+          "statusText": "OK",
+          "headers": {
+            "content-length": "20",
+            "content-type": "application/json",
+            "date": "Fri, 10 Jul 2026 17:38:23 GMT"
+          },
+          "data": {
+            "status": "success"
+          },
+          "timestamp": 1783705103687,
+          "duration": 30
+        }
+      }
+    ],
+    "folders": [],
+    "environments": {
+      "dev": {
+        "URL": "http://localhost:8080"
+      },
+      "production": {}
+    }
+  }
+]
