@@ -43,7 +43,7 @@ pub async fn api_auth_register(
     
     let combined_password = format!("{}{}", payload.password, hash_key);
     let password_hash = match tokio::task::spawn_blocking(move || {
-        bcrypt::hash(&combined_password, bcrypt::DEFAULT_COST)
+        bcrypt::hash(&combined_password, 10)
     }).await {
         Ok(Ok(h)) => h,
         Ok(Err(e)) => {
