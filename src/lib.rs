@@ -39,6 +39,7 @@ pub struct Database {
 pub struct SharedDb {
     pub collections: RwLock<HashMap<String, Arc<RwLock<Collection>>>>,
     pub storage_path: Option<String>,
+    pub sessions: RwLock<HashMap<String, String>>,
 }
 
 // Query Types
@@ -521,28 +522,32 @@ impl SharedDb {
         SharedDb {
             collections: RwLock::new(cols),
             storage_path: db.storage_path,
+            sessions: RwLock::new(HashMap::new()),
         }
     }
 
-    fn sync_document(&self, collection: &str, doc_id: &str, doc: &Document) -> Result<(), String> {
+    async fn sync_document(&self, collection: &str, doc_id: &str, doc: &Document) -> Result<(), String> {
         if let Some(ref base_path) = self.storage_path {
             let dir_path = format!("{}/{}", base_path, collection);
-            if !Path::new(&dir_path).exists() {
-                fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
-            }
             let file_path = format!("{}/{}.bin", dir_path, doc_id);
             let bytes = rmp_serde::to_vec(doc).map_err(|e| e.to_string())?;
-            fs::write(file_path, bytes).map_err(|e| e.to_string())?;
+            tokio::task::spawn_blocking(move || {
+                fs::create_dir_all(&dir_path).map_err(|e| e.to_string())?;
+                fs::write(&file_path, &bytes).map_err(|e| e.to_string())
+            }).await.map_err(|e| e.to_string())??;
         }
         Ok(())
     }
 
-    fn unsync_document(&self, collection: &str, doc_id: &str) -> Result<(), String> {
+    async fn unsync_document(&self, collection: &str, doc_id: &str) -> Result<(), String> {
         if let Some(ref base_path) = self.storage_path {
             let file_path = format!("{}/{}/{}.bin", base_path, collection, doc_id);
-            if Path::new(&file_path).exists() {
-                fs::remove_file(file_path).map_err(|e| e.to_string())?;
-            }
+            tokio::task::spawn_blocking(move || {
+                if Path::new(&file_path).exists() {
+                    fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+                }
+                Ok::<(), String>(())
+            }).await.map_err(|e| e.to_string())??;
         }
         Ok(())
     }
@@ -587,6 +592,13 @@ impl SharedDb {
         doc_id: String,
         document: Document,
     ) -> Result<(), String> {
+        if collection_name == "authentication" {
+            for key in document.fields.keys() {
+                if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                    return Err("A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'".to_string());
+                }
+            }
+        }
         // Tenta obter o Arc sem write-lock primeiro (caminho feliz)
         let col_arc = {
             let cols = self.collections.read().await;
@@ -609,7 +621,7 @@ impl SharedDb {
             col.documents.insert(doc_id.clone(), document.clone());
         }
 
-        self.sync_document(collection_name, &doc_id, &document)?;
+        self.sync_document(collection_name, &doc_id, &document).await?;
         Ok(())
     }
 
@@ -634,6 +646,13 @@ impl SharedDb {
         doc_id: &str,
         fields: HashMap<String, Value>,
     ) -> Result<(), String> {
+        if collection_name == "authentication" {
+            for key in fields.keys() {
+                if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                    return Err("A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'".to_string());
+                }
+            }
+        }
         let col_arc = {
             let cols = self.collections.read().await;
             cols.get(collection_name)
@@ -658,7 +677,7 @@ impl SharedDb {
             doc.clone()
         };
 
-        self.sync_document(collection_name, doc_id, &updated_doc)?;
+        self.sync_document(collection_name, doc_id, &updated_doc).await?;
         Ok(())
     }
 
@@ -682,7 +701,7 @@ impl SharedDb {
             }
         }
 
-        self.unsync_document(collection_name, doc_id)?;
+        self.unsync_document(collection_name, doc_id).await?;
         Ok(())
     }
 

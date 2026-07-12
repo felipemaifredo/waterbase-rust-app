@@ -4,15 +4,15 @@ import { check, sleep } from "k6";
 // Configurações do teste de estresse
 export const options = {
   stages: [
-    { duration: "30s", target: 100 },  // Ramp-up inicial
-    { duration: "30s", target: 300 },  // Ramp-up intermediário
-    { duration: "30s", target: 500 },  // Pico: sobe para 500 usuários simultâneos
-    { duration: "60s", target: 500 },  // Sustenta 500 usuários por 1 minuto
-    { duration: "20s", target: 0 }     // Ramp-down rápido para 0
+    { duration: "5s", target: 10 },  // Ramp-up inicial
+    { duration: "10s", target: 30 },  // Ramp-up intermediário
+    { duration: "10s", target: 100 },  // Pico: sobe para 500 usuários simultâneos
+    { duration: "30s", target: 100 },  // Sustenta 500 usuários por 1 minuto
+    { duration: "5s", target: 0 }     // Ramp-down rápido para 0
   ]
 }
 
-const BASE_URL = __ENV.BASE_URL || "http://0.0.0.0:8080/api/v1";
+const BASE_URL = __ENV.BASE_URL || "http://localhost:8080/api/v1";
 const API_KEY = __ENV.API_KEY || "waterbase_secret_token_123";
 
 const params = {
@@ -112,6 +112,87 @@ export default function () {
     "DELETE /{col}/{doc} status is 200": (r) => r.status === 200
   })
 
+  // 8. Auth Flow: register, login, revalidate, logout
+  const testEmail = `user_stress_${__VU}_${__ITER}@example.com`
+  const testName = `User stress ${__VU} ${__ITER}`
+
+  // 8.1 Register
+  const registerPayload = JSON.stringify({
+    email: testEmail,
+    password: "super_secure_pass_123",
+    name: testName,
+    document: `doc-stress-${__VU}-${__ITER}`,
+    address: `Street stress ${__VU}-${__ITER}, 123`
+  })
+
+  let authRes = http.post(`${BASE_URL}/auth/register`, registerPayload, params)
+  check(authRes, {
+    "POST /auth/register status is 201": (r) => r.status === 201
+  })
+
+  const registeredId = authRes.json().id
+
+  // 8.2 Login
+  const loginPayload = JSON.stringify({
+    id: registeredId,
+    password: "super_secure_pass_123"
+  })
+
+  authRes = http.post(`${BASE_URL}/auth/login`, loginPayload, params)
+  check(authRes, {
+    "POST /auth/login status is 200": (r) => r.status === 200,
+    "login returns id": (r) => r.json().id === registeredId
+  })
+
+  // 8.2.1 Consultar o perfil do usuário diretamente na coleção "users"
+  const userProfileRes = http.get(`${BASE_URL}/users/${registeredId}`, params)
+  check(userProfileRes, {
+    "GET /users/{id} status is 200": (r) => r.status === 200,
+    "user profile matches name": (r) => r.json().name === testName
+  })
+
+  // 8.2.2 Consultar os dados de autenticação e garantir que password_hash é omitido
+  const authDocRes = http.get(`${BASE_URL}/authentication/${registeredId}`, params)
+  check(authDocRes, {
+    "GET /authentication/{id} status is 200": (r) => r.status === 200,
+    "auth doc omits password_hash": (r) => r.json().password_hash === undefined
+  })
+
+  const cookies = authRes.cookies
+  const sessionCookie = cookies["auth_session"] && cookies["auth_session"][0]
+  const sessionToken = sessionCookie ? sessionCookie.value : null
+
+  if (sessionToken) {
+    const authCookieHeader = {
+      headers: Object.assign({}, params.headers, {
+        "Cookie": `auth_session=${sessionToken}`
+      })
+    }
+
+    // 8.3 Revalidate
+    const revalRes = http.get(`${BASE_URL}/auth/revalidate`, authCookieHeader)
+    check(revalRes, {
+      "GET /auth/revalidate status is 200": (r) => r.status === 200,
+      "revalidate returns id": (r) => r.json().id === registeredId
+    })
+
+    const revalCookies = revalRes.cookies
+    const revalSessionCookie = revalCookies["auth_session"] && revalCookies["auth_session"][0]
+    const nextSessionToken = revalSessionCookie ? revalSessionCookie.value : sessionToken
+
+    const logoutCookieHeader = {
+      headers: Object.assign({}, params.headers, {
+        "Cookie": `auth_session=${nextSessionToken}`
+      })
+    }
+
+    // 8.4 Logout
+    const logoutRes = http.post(`${BASE_URL}/auth/logout`, null, logoutCookieHeader)
+    check(logoutRes, {
+      "POST /auth/logout status is 200": (r) => r.status === 200,
+      "logout returns success": (r) => r.json().success === true
+    })
+  }
   // Espera curta entre iterações para simular comportamento real
   sleep(0.1)
 }

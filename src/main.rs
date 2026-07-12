@@ -15,6 +15,10 @@ async fn main() -> std::io::Result<()> {
     // Carrega variáveis do arquivo .env
     dotenv().ok();
 
+    // Garante que AUTH_HASH_KEY está configurada
+    let _auth_hash_key = std::env::var("AUTH_HASH_KEY")
+        .expect("Variável de ambiente AUTH_HASH_KEY não configurada. Defina-a no seu arquivo .env.");
+
     // Cria ou carrega o banco de dados persistido no disco
     let db_path = std::env::var("DATABASE_PATH").unwrap_or_else(|_| "data".to_string());
     let db = Database::new_with_storage(db_path).expect("Falha ao inicializar armazenamento no disco");
@@ -60,6 +64,13 @@ async fn main() -> std::io::Result<()> {
             // External API Routes (REST v1)
             .service(
                 web::scope("/api/v1")
+                .service(
+                    web::scope("/auth")
+                        .route("/register", web::post().to(handlers::api::api_auth_register))
+                        .route("/login", web::post().to(handlers::api::api_auth_login))
+                        .route("/revalidate", web::get().to(handlers::api::api_auth_revalidate))
+                        .route("/logout", web::post().to(handlers::api::api_auth_logout))
+                )
                     .route("/collections", web::get().to(handlers::api::api_list_collections))
                     .route("/{col}", web::get().to(handlers::api::api_list_documents))
                     .route("/{col}/_query", web::post().to(handlers::api::api_query_documents))

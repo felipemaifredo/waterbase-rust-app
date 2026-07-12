@@ -13,3 +13,5 @@ rmp-serde = "1"
 dotenvy = "0.15"
 uuid = { version = "1.0", features = ["v4"] }
 tokio = { version = "=1.52.3", features = ["sync"] }
+bcrypt = "0.15"
+

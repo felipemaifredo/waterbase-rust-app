@@ -258,6 +258,93 @@ pub fn docs_page() -> Markup {
                                 }
                             }
 
+                            div class="api-endpoint" {
+                                div class="api-header" {
+                                    span class="badge badge-post" { "POST" }
+                                    span class="api-path" { "/api/v1/auth/register" }
+                                }
+                                p class="api-description" { "Registra um novo usuário no sistema, criando credenciais na coleção 'authentication' e o perfil na coleção 'users'." }
+                                div class="api-details" {
+                                    div class="details-box" {
+                                        h4 { "Comando Curl" }
+                                        pre class="code-block" {
+                                            "curl -X POST " (base_url) "/api/v1/auth/register \\\n     -H \"Authorization: Bearer " (api_key) "\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n          \"id\": \"joao123\",\n          \"email\": \"joao@example.com\",\n          \"password\": \"senha_secreta\",\n          \"name\": \"João Silva\",\n          \"document\": \"123.456.789-00\",\n          \"address\": \"Rua das Flores, 123\"\n         }'"
+                                        }
+                                    }
+                                    div class="details-box" {
+                                        h4 { "Resposta de Exemplo" }
+                                        pre class="code-block" {
+                                            "{\n  \"status\": \"success\",\n  \"id\": \"joao123\"\n}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            div class="api-endpoint" {
+                                div class="api-header" {
+                                    span class="badge badge-post" { "POST" }
+                                    span class="api-path" { "/api/v1/auth/login" }
+                                }
+                                p class="api-description" { "Valida as credenciais fornecidas, inicia a sessão do usuário e retorna o cookie HTTP 'auth_session'." }
+                                div class="api-details" {
+                                    div class="details-box" {
+                                        h4 { "Comando Curl" }
+                                        pre class="code-block" {
+                                            "curl -X POST " (base_url) "/api/v1/auth/login \\\n     -H \"Authorization: Bearer " (api_key) "\" \\\n     -H \"Content-Type: application/json\" \\\n     -d '{\n          \"id\": \"joao123\",\n          \"password\": \"senha_secreta\"\n         }'"
+                                        }
+                                    }
+                                    div class="details-box" {
+                                        h4 { "Resposta de Exemplo" }
+                                        pre class="code-block" {
+                                            "// Retorna o cabeçalho Set-Cookie: auth_session=...\n{\n  \"authenticated\": true,\n  \"id\": \"joao123\",\n  \"email\": \"joao@example.com\",\n  \"profile\": {\n    \"name\": \"João Silva\",\n    \"document\": \"123.456.789-00\",\n    \"address\": \"Rua das Flores, 123\"\n  }\n}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            div class="api-endpoint" {
+                                div class="api-header" {
+                                    span class="badge badge-get" { "GET" }
+                                    span class="api-path" { "/api/v1/auth/revalidate" }
+                                }
+                                p class="api-description" { "Verifica se a sessão ativa enviada no cookie 'auth_session' é válida, realiza a rotação automática do token de sessão e retorna os dados atualizados." }
+                                div class="api-details" {
+                                    div class="details-box" {
+                                        h4 { "Comando Curl" }
+                                        pre class="code-block" {
+                                            "curl -X GET " (base_url) "/api/v1/auth/revalidate \\\n     -H \"Authorization: Bearer " (api_key) "\" \\\n     --cookie \"auth_session=123e4567-e89b-12d3-a456-426614174000\""
+                                        }
+                                    }
+                                    div class="details-box" {
+                                        h4 { "Resposta de Exemplo" }
+                                        pre class="code-block" {
+                                            "// Retorna um novo cabeçalho Set-Cookie rotacionado\n{\n  \"authenticated\": true,\n  \"id\": \"joao123\",\n  \"email\": \"joao@example.com\",\n  \"profile\": {\n    \"name\": \"João Silva\",\n    \"document\": \"123.456.789-00\",\n    \"address\": \"Rua das Flores, 123\"\n  }\n}"
+                                        }
+                                    }
+                                }
+                            }
+
+                            div class="api-endpoint" {
+                                div class="api-header" {
+                                    span class="badge badge-post" { "POST" }
+                                    span class="api-path" { "/api/v1/auth/logout" }
+                                }
+                                p class="api-description" { "Encerra a sessão ativa do usuário no servidor e expira o cookie de sessão no cliente." }
+                                div class="api-details" {
+                                    div class="details-box" {
+                                        h4 { "Comando Curl" }
+                                        pre class="code-block" {
+                                            "curl -X POST " (base_url) "/api/v1/auth/logout \\\n     -H \"Authorization: Bearer " (api_key) "\" \\\n     --cookie \"auth_session=123e4567-e89b-12d3-a456-426614174000\""
+                                        }
+                                    }
+                                    div class="details-box" {
+                                        h4 { "Resposta de Exemplo" }
+                                        pre class="code-block" {
+                                            "// Retorna o cookie auth_session com Max-Age=0\n{\n  \"success\": true,\n  \"message\": \"Logout efetuado com sucesso\"\n}"
+                                        }
+                                    }
+                                }
+                            }
 
                             div class="api-endpoint" {
                                 div class="api-header" {
@@ -365,7 +452,13 @@ pub fn dashboard_page(
                                         div class="input-group" {
                                             label { "JSON Data" }
                                             textarea class="textarea-json" name="json" style="height: 100px;" required {
-                                                "{\n  \"nome\": \"Exemplo\",\n  \"ativo\": true\n}"
+                                                @if col == "authentication" {
+                                                    "{\n  \"email\": \"joao@example.com\",\n  \"password_hash\": \"$2b$12$Sg3R9c6K5X5R...\"\n}"
+                                                } @else if col == "users" {
+                                                    "{\n  \"name\": \"João Silva\",\n  \"document\": \"123.456.789-00\",\n  \"address\": \"Rua das Flores, 123\"\n}"
+                                                } @else {
+                                                    "{\n  \"nome\": \"Exemplo\",\n  \"ativo\": true\n}"
+                                                }
                                             }
                                         }
                                         button class="btn-primary" type="submit" style="width: auto; align-self: flex-start; padding: 8px 16px;" { "Criar Documento" }

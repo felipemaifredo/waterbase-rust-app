@@ -62,7 +62,7 @@ pub async fn login_post(form: web::Form<LoginForm>) -> impl Responder {
     let pass_ok = form.password.as_deref() == Some(&admin_pass);
 
     if user_ok && pass_ok {
-        let is_prod = std::env::var("APP_ENV").unwrap_or_else(|_| "development".to_string()) == "production";
+        let is_prod = std::env::var("APP_ENV").unwrap_or_else(|_| "dev".to_string()) == "prod";
         let cookie = Cookie::build(SESSION_COOKIE_NAME, SESSION_COOKIE_VALUE)
             .path("/")
             .http_only(true)
@@ -111,7 +111,15 @@ pub async fn index(
         return HttpResponse::SeeOther().insert_header((header::LOCATION, "/login")).finish();
     }
 
-    let collections = db.list_collections().await;
+    let mut collections = db.list_collections().await;
+    if !collections.contains(&"authentication".to_string()) {
+        collections.push("authentication".to_string());
+    }
+    if !collections.contains(&"users".to_string()) {
+        collections.push("users".to_string());
+    }
+    collections.sort();
+
     let active_col = query.collection.clone();
     let mut documents = Vec::new();
     let mut error_msg = None;
@@ -119,7 +127,13 @@ pub async fn index(
     if let Some(ref col) = active_col {
         match db.list_documents(col).await {
             Ok(docs) => documents = docs,
-            Err(e) => error_msg = Some(e),
+            Err(e) => {
+                if col == "authentication" || col == "users" {
+                    documents = Vec::new();
+                } else {
+                    error_msg = Some(e);
+                }
+            }
         }
     }
 

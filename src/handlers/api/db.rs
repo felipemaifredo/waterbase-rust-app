@@ -1,10 +1,11 @@
 //Libs
-use actix_web::{web, HttpResponse, Responder, HttpRequest};
+use actix_web::{web, HttpRequest, HttpResponse, Responder};
 use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 //Imports
-use waterbase_rust_app::{Document, Value, Query, SharedDb};
+use waterbase_rust_app::{Document, Query, SharedDb, Value};
+use super::is_api_authenticated;
 
 //Types
 #[derive(serde::Deserialize, Default)]
@@ -19,19 +20,6 @@ pub struct ListDocumentsQuery {
 }
 
 //Funcs
-pub fn is_api_authenticated(req: &HttpRequest) -> bool {
-    let expected_key = std::env::var("API_KEY").unwrap_or_else(|_| "waterbase_secret_token_123".to_string());
-    if let Some(auth_header) = req.headers().get("Authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                let token = &auth_str[7..];
-                return token == expected_key;
-            }
-        }
-    }
-    false
-}
-
 pub async fn api_list_collections(req: HttpRequest, db: web::Data<SharedDb>) -> impl Responder {
     if !is_api_authenticated(&req) {
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
@@ -67,6 +55,9 @@ pub async fn api_list_documents(
                 let mut doc_json = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
                 if let serde_json::Value::Object(ref mut map) = doc_json {
                     map.insert("id".to_string(), serde_json::Value::String(id));
+                    if collection_name == "authentication" {
+                        map.remove("password_hash");
+                    }
                 }
                 list.push(doc_json);
             }
@@ -85,7 +76,10 @@ pub async fn api_get_document(
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, doc_id) = path.into_inner();
-    if let Some(doc) = db.get_document(&collection_name, &doc_id).await {
+    if let Some(mut doc) = db.get_document(&collection_name, &doc_id).await {
+        if collection_name == "authentication" {
+            doc.fields.remove("password_hash");
+        }
         HttpResponse::Ok().json(doc)
     } else {
         HttpResponse::NotFound().json(serde_json::json!({
@@ -177,6 +171,9 @@ pub async fn api_query_documents(
                 let mut doc_json = serde_json::to_value(&doc).unwrap_or(serde_json::Value::Null);
                 if let serde_json::Value::Object(ref mut map) = doc_json {
                     map.insert("id".to_string(), serde_json::Value::String(id));
+                    if collection_name == "authentication" {
+                        map.remove("password_hash");
+                    }
                 }
                 list.push(doc_json);
             }
@@ -200,13 +197,4 @@ pub async fn api_delete_collection(
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "success" })),
         Err(e) => HttpResponse::InternalServerError().json(serde_json::json!({ "error": e })),
     }
-}
-
-pub async fn health(db: web::Data<SharedDb>) -> impl Responder {
-    let collection_count = db.collections.read().await.len();
-    HttpResponse::Ok().json(serde_json::json!({
-        "status": "ok",
-        "version": env!("CARGO_PKG_VERSION"),
-        "collections": collection_count
-    }))
 }

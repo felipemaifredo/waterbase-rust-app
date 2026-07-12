@@ -41,7 +41,7 @@ VOLUME ["/app/data"]
 ENV HOST=0.0.0.0
 ENV PORT=8080
 ENV DATABASE_PATH=/app/data
-ENV APP_ENV=production
+ENV APP_ENV=prod
 
 EXPOSE 8080
 
