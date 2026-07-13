@@ -106,6 +106,16 @@ pub async fn api_create_document(
 
     let mut doc = body.into_inner();
 
+    if collection_name == "authentication" {
+        for key in doc.fields.keys() {
+            if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": "A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'"
+                }));
+            }
+        }
+    }
+
     if query.timestamp.unwrap_or(false) {
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -133,7 +143,17 @@ pub async fn api_update_document(
         return HttpResponse::Unauthorized().json(serde_json::json!({ "error": "Unauthorized" }));
     }
     let (collection_name, doc_id) = path.into_inner();
-    match db.update_document(&collection_name, &doc_id, body.into_inner()).await {
+    let fields = body.into_inner();
+    if collection_name == "authentication" {
+        for key in fields.keys() {
+            if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                return HttpResponse::BadRequest().json(serde_json::json!({
+                    "error": "A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'"
+                }));
+            }
+        }
+    }
+    match db.update_document(&collection_name, &doc_id, fields).await {
         Ok(_) => HttpResponse::Ok().json(serde_json::json!({ "status": "success" })),
         Err(e) => HttpResponse::NotFound().json(serde_json::json!({ "error": e })),
     }

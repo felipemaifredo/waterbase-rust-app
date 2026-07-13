@@ -592,13 +592,7 @@ impl SharedDb {
         doc_id: String,
         document: Document,
     ) -> Result<(), String> {
-        if collection_name == "authentication" {
-            for key in document.fields.keys() {
-                if key != "email" && key != "password_hash" && !key.starts_with('_') {
-                    return Err("A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'".to_string());
-                }
-            }
-        }
+
         // Tenta obter o Arc sem write-lock primeiro (caminho feliz)
         let col_arc = {
             let cols = self.collections.read().await;
@@ -616,11 +610,8 @@ impl SharedDb {
             }
         };
 
-        {
-            let mut col = col_arc.write().await;
-            col.documents.insert(doc_id.clone(), document.clone());
-        }
-
+        let mut col = col_arc.write().await;
+        col.documents.insert(doc_id.clone(), document.clone());
         self.sync_document(collection_name, &doc_id, &document).await?;
         Ok(())
     }
@@ -646,13 +637,7 @@ impl SharedDb {
         doc_id: &str,
         fields: HashMap<String, Value>,
     ) -> Result<(), String> {
-        if collection_name == "authentication" {
-            for key in fields.keys() {
-                if key != "email" && key != "password_hash" && !key.starts_with('_') {
-                    return Err("A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'".to_string());
-                }
-            }
-        }
+
         let col_arc = {
             let cols = self.collections.read().await;
             cols.get(collection_name)
@@ -660,24 +645,22 @@ impl SharedDb {
                 .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
         };
 
-        let updated_doc = {
-            let mut col = col_arc.write().await;
-            let doc = col
-                .documents
-                .get_mut(doc_id)
-                .ok_or_else(|| format!("Document '{}' not found", doc_id))?;
-            for (k, v) in fields {
-                doc.fields.insert(k, v);
-            }
-            let now_ms = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_millis() as f64;
-            doc.fields.insert("_updated_at".to_string(), Value::Number(now_ms));
-            doc.clone()
-        };
-
-        self.sync_document(collection_name, doc_id, &updated_doc).await?;
+        let mut col = col_arc.write().await;
+        let doc = col
+            .documents
+            .get_mut(doc_id)
+            .ok_or_else(|| format!("Document '{}' not found", doc_id))?;
+        for (k, v) in fields {
+            doc.fields.insert(k, v);
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as f64;
+        doc.fields.insert("_updated_at".to_string(), Value::Number(now_ms));
+        
+        let doc_clone = doc.clone();
+        self.sync_document(collection_name, doc_id, &doc_clone).await?;
         Ok(())
     }
 
@@ -694,11 +677,9 @@ impl SharedDb {
                 .ok_or_else(|| format!("Collection '{}' not found", collection_name))?
         };
 
-        {
-            let mut col = col_arc.write().await;
-            if col.documents.remove(doc_id).is_none() {
-                return Err(format!("Document '{}' not found", doc_id));
-            }
+        let mut col = col_arc.write().await;
+        if col.documents.remove(doc_id).is_none() {
+            return Err(format!("Document '{}' not found", doc_id));
         }
 
         self.unsync_document(collection_name, doc_id).await?;

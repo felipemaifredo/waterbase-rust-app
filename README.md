@@ -7,7 +7,7 @@ Waterbase é um banco de dados NoSQL leve, orientado a documentos, desenvolvido 
 ## ✨ Recursos
 
 *   **Estrutura de Documentos:** Armazenamento em coleções (`Collections`) contendo documentos (`Documents`) representados como dados chave-valor JSON.
-*   **Persistência em Disco:** Sincronização em tempo real das alterações em memória para arquivos locais `.json` dentro do diretório `/data`.
+*   **Persistência em Disco:** Sincronização em tempo real das alterações em memória para arquivos binários `.bin` (codificados com MessagePack para maior eficiência e compactação) dentro do diretório `/data`.
 *   **Query Engine:** Motor de consultas flexível que suporta operadores de comparação (`==`, `!=`, `>`, `>=`, `<`, `<=`), ordenação (`asc`, `desc`) e limite de resultados.
 *   **Waterbase HUD:** Painel Web moderno e responsivo (estilo Linear/Vercel) para gerenciar coleções e editar dados JSON diretamente no navegador.
 *   **API REST Segura:** Endpoints HTTP protegidos por Bearer Token para que sistemas externos possam ler, gravar, atualizar e consultar dados.

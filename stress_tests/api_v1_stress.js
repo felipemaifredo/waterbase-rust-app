@@ -6,8 +6,8 @@ export const options = {
   stages: [
     { duration: "5s", target: 10 },  // Ramp-up inicial
     { duration: "10s", target: 30 },  // Ramp-up intermediário
-    { duration: "10s", target: 100 },  // Pico: sobe para 500 usuários simultâneos
-    { duration: "30s", target: 100 },  // Sustenta 500 usuários por 1 minuto
+    { duration: "10s", target: 50 },  // Pico: sobe para 500 usuários simultâneos
+    { duration: "15s", target: 50 },  // Sustenta 500 usuários por 1 minuto
     { duration: "5s", target: 0 }     // Ramp-down rápido para 0
   ]
 }

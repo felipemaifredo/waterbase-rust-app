@@ -126,7 +126,14 @@ pub async fn index(
 
     if let Some(ref col) = active_col {
         match db.list_documents(col).await {
-            Ok(docs) => documents = docs,
+            Ok(mut docs) => {
+                if col == "authentication" {
+                    for (_, doc) in &mut docs {
+                        doc.fields.remove("password_hash");
+                    }
+                }
+                documents = docs;
+            }
             Err(e) => {
                 if col == "authentication" || col == "users" {
                     documents = Vec::new();
@@ -172,6 +179,15 @@ pub async fn create_document(
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
+            if collection_name == "authentication" {
+                for key in doc.fields.keys() {
+                    if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                        return HttpResponse::SeeOther()
+                            .insert_header((header::LOCATION, format!("/?collection={}&error=A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'", collection_name)))
+                            .finish();
+                    }
+                }
+            }
             if let Err(e) = db.create_document(&collection_name, form.doc_id.clone(), doc).await {
                 return HttpResponse::SeeOther()
                     .insert_header((header::LOCATION, format!("/?collection={}&error={}", collection_name, e)))
@@ -204,6 +220,15 @@ pub async fn update_document(
 
     match serde_json::from_str::<Document>(&form.json) {
         Ok(doc) => {
+            if collection_name == "authentication" {
+                for key in doc.fields.keys() {
+                    if key != "email" && key != "password_hash" && !key.starts_with('_') {
+                        return HttpResponse::SeeOther()
+                            .insert_header((header::LOCATION, format!("/?collection={}&error=A coleção 'authentication' só pode aceitar os campos 'email' e 'password_hash'", collection_name)))
+                            .finish();
+                    }
+                }
+            }
             if let Err(e) = db.update_document(&collection_name, &doc_id, doc.fields).await {
                 return HttpResponse::SeeOther()
                     .insert_header((header::LOCATION, format!("/?collection={}&error={}", collection_name, e)))
